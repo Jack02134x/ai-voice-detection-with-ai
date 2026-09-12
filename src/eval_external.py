@@ -13,7 +13,7 @@ from model import AIVoiceDetector
 # ============================================================
 
 AUDIO_DIR = Path("~/Videos/snip_4sec").expanduser()
-MODEL_FILE = "ai_voice_detector.pt"
+MODEL_FILE = "models/ai_voice_detector/best_model.pt"
 OUTPUT_FILE = "data/external_results.csv"
 
 TARGET_SAMPLE_RATE = 16_000

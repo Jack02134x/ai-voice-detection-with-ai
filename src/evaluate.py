@@ -7,7 +7,7 @@ from model import AIVoiceDetector
 
 
 TEST_CSV = "data/test.csv"
-MODEL_FILE = "ai_voice_detector.pt"
+MODEL_FILE = "models/ai_voice_detector/best_model.pt"
 
 BATCH_SIZE = 8
 
