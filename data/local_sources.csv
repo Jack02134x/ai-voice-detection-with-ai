@@ -1,0 +1,17 @@
+folder,source,role,language,generator,group_regex
+ai/ChatGPT,ChatGPT-voice,train,en,ChatGPT-voice,
+ai/garystafford,GaryStafford-AI,train,en,re:^([a-z]{2})_,^(.*?)_part_
+ai/gemini,Gemini-voice,train,en,Gemini-voice,
+ai/neuro,Neuro-sama,train,en,Neuro-sama,
+ai/uncovai_tts,UncovAI-TTS,train,en,from_dir,
+ai/youtubeslop,YouTube-AI,train,en,unknown,
+human/BlueSR,BlueSR,train,en,,
+human/CREMA-D,CREMA-D,train,en,,^(\d{4})_
+human/HiFi,HiFi-TTS,train,en,,
+human/beastboy,beastboy,train,en,,
+human/fireborn,fireborn,train,en,,
+human/garystafford,GaryStafford-human,train,en,,^(.*?)_part_
+human/immy,immy,train,en,,
+human/silence,silence,ignore,,,
+human/vishesh,vishesh,train,en,,
+human/yairamr,yairamr,train,en,,_speech/(\d+)
