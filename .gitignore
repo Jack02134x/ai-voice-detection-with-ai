@@ -3,6 +3,7 @@ audio/
 benchmark/
 noise/
 data_collection/downloads/
+output.txt
 *.wav
 *.mp3
 *.flac
@@ -41,3 +42,7 @@ venv/
 logs/
 *.log
 *.jsonl
+
+# local AI coordination board
+ai_communication.md
+
