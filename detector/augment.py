@@ -46,18 +46,23 @@ def room_impulse(rng, sr=SAMPLE_RATE):
     return tail
 
 
-def device_response(n, rng, sr=SAMPLE_RATE):
+def device_response(n, rng, sr=SAMPLE_RATE, hp=(60, 400), lp=(3500, 8000), max_gain_db=8):
     """Magnitude response of a cheap speaker / mic chain: band-pass with random
     corners plus a few resonances and dips."""
     f = np.maximum(np.fft.rfftfreq(n, 1 / sr), 1.0)
     order = rng.choice([1, 2, 4])
-    hp, lp = rng.uniform(60, 400), rng.uniform(3500, 8000)
+    hp, lp = rng.uniform(*hp), rng.uniform(*lp)
     mag = 1 / np.sqrt(1 + (hp / f) ** (2 * order)) / np.sqrt(1 + (f / lp) ** (2 * order))
     gain_db = np.zeros_like(f)
     for _ in range(rng.integers(1, 5)):
-        fc, g, width = np.exp(rng.uniform(np.log(200), np.log(7000))), rng.uniform(-8, 8), rng.uniform(0.2, 1.0)
-        gain_db += g * np.exp(-0.5 * (np.log2(f / fc) / width) ** 2)    # bump `width` octaves wide
+        fc, width = np.exp(rng.uniform(np.log(200), np.log(7000))), rng.uniform(0.2, 1.0)
+        gain_db += rng.uniform(-max_gain_db, max_gain_db) * np.exp(-0.5 * (np.log2(f / fc) / width) ** 2)
     return mag * 10 ** (gain_db / 20)
+
+
+def speaker_response(n, rng, sr=SAMPLE_RATE):
+    """A phone / laptop loudspeaker: almost no bass, peaky mids."""
+    return device_response(n, rng, sr, hp=(180, 700), lp=(4000, 8000), max_gain_db=10)
 
 
 def codec_roundtrip(x, fmt, bit_rate, sr=SAMPLE_RATE):
@@ -71,19 +76,23 @@ def codec_roundtrip(x, fmt, bit_rate, sr=SAMPLE_RATE):
 
 class Channel:
     """`room(clip)` before the background is mixed in, `transmit(clip)` after.
-    `prob` = {"room": p, "device": p, "codec": p}; `scale` multiplies them all."""
+    `prob` = {"speaker": p, "room": p, "device": p, "codec": p}; `scale` multiplies them all."""
 
     def __init__(self, seed=0, prob=None, scale=1.0):
         self.rng = np.random.default_rng(seed)
         self.p = {k: min(1.0, v * scale) for k, v in (prob or CHANNEL_PROB).items()}
 
     def room(self, clip):
-        if self.rng.random() >= self.p["room"]:
-            return clip
-        return normalize(_convolve(clip, room_impulse(self.rng)))
+        """Sometimes a loudspeaker first (replay), then the room (always after a loudspeaker)."""
+        replay = self.rng.random() < self.p.get("speaker", 0.0)
+        if replay:
+            clip = self.device(clip, speaker_response)
+        if replay or self.rng.random() < self.p["room"]:
+            clip = normalize(_convolve(clip, room_impulse(self.rng)))
+        return clip
 
-    def device(self, clip):
-        y = np.fft.irfft(np.fft.rfft(clip) * device_response(len(clip), self.rng), len(clip))
+    def device(self, clip, response=device_response):
+        y = np.fft.irfft(np.fft.rfft(clip) * response(len(clip), self.rng), len(clip))
         if self.rng.random() < 0.3:                                      # overdriven small speaker
             drive = self.rng.uniform(2, 8)
             y = np.tanh(drive * normalize(y)) / np.tanh(drive)
@@ -108,3 +117,9 @@ class Channel:
         """All three, always: the 'played through a speaker into a laptop mic and
         sent over a call' test used by evaluate.py --channel."""
         return self.codec(self.device(normalize(_convolve(wav, room_impulse(self.rng)))))
+
+    def replay(self, wav):
+        """Phone speaker -> room -> laptop mic, no compression: the 'AI voice played
+        from a phone into the mic' test used by evaluate.py --channel replay."""
+        wav = self.device(normalize(wav), speaker_response)
+        return self.device(normalize(_convolve(wav, room_impulse(self.rng))))

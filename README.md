@@ -11,6 +11,9 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   Training uses class-weighted cross-entropy. The decision threshold on P(AI) is calibrated at the
   equal-error-rate point of your held-out recordings (Local validation). Checkpoints up to v2 used
   the pooled validation set instead, which put it too high (0.653); override it with `--threshold`.
+  The default `models/checkpoints/best.pt` is v3 (step 18000) with the threshold set by hand to 0.35:
+  its Local EER point (0.197) called half of all human voices AI once they went through a mic.
+  0.35 balances clean, noisy, mic and SONAR (`threshold_trained` in the file keeps the original).
 - **Standard input format:** 16 kHz, mono, float32, leading/trailing silence trimmed, cut into
   64,600-sample (~4.04 s) windows, each RMS-normalised to -26 dBFS. Shorter clips are tiled to
   length. Long files are scanned with 50% overlap, near-silent windows are skipped, and the
@@ -24,9 +27,10 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   2-4 other voices, or synthetic hiss/rumble. Without it the model learned "background noise = human".
   Put fan/room/game audio or music *without vocals* in `noise/` to add more. `train.py --bg-prob 0` turns it off.
 - **Channel augmentation** (`detector/augment.py`), also on human and AI alike:
-  - room reverb on 30% of clips (synthetic room impulse responses);
-  - a random speaker/mic frequency response, sometimes overdriven, on 25%;
-  - MP3, Opus or Vorbis compression on 30%.
+  - a phone/laptop loudspeaker (no bass, peaky mids) followed by a room on 15%;
+  - room reverb on 35% of clips (synthetic room impulse responses);
+  - a random speaker/mic frequency response, sometimes overdriven, on 30%;
+  - MP3, Opus or Vorbis compression on 25%.
 
   This is for live microphone use. Reverb was v2's blind spot: a simulated room alone took its EER
   from 3% to 34%. `train.py --channel-aug 0` turns it off; `evaluate.py --channel` runs any test
@@ -35,23 +39,43 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   to disk. Every training source but EmoSpoofTTS has both human and AI speech, so the model can't
   learn "which dataset is this".
   - Train: ASVspoof5, ASVspoof2021 DF + LA, In-the-Wild (80% of speakers), CD-ADD, DFADD, LibriSeVoc,
-    XMAD, CVoiceFake_small, EmoSpoofTTS, ODSS
+    XMAD, CVoiceFake_small, EmoSpoofTTS, ODSS, DeepVoice (RVC voice conversion; 5 of its 8 people)
   - Validation: ASVspoof5 (last 10 shards), In-the-Wild (held-out 20% of speakers), your held-out
     recordings clean (Local) and through the simulated room/mic/codec (Local+mic)
-  - Never trained on (generalisation tests): SONAR, DeepVoice
+  - Never trained on (generalisation tests): SONAR, and DeepVoice's Obama / Taylor / Margot
 
 - **Your own recordings** (`audio/human/<folder>`, `audio/ai/<folder>`) are indexed by
   `build_local_csv.py` into `data/local_data.csv` and make up ~22% of every batch (`LOCAL_WEIGHT` = 0.30, relative to the other sources).
   Human and AI are sampled 50/50, and folders are weighted by sqrt(size) so small ones still count.
   Whole videos are held out for validation; single-recording folders hold out their last 20%.
 
+## Desktop app (live microphone)
+
+```bash
+python app.py                          # Live microphone tab + File analysis tab
+python app.py --simulate clip.wav      # feed a file into the live tab instead of the mic
+```
+
+Live mode keeps the last ~4 s of microphone audio and scores it every 0.5 s. The speech detector
+runs first, so silence shows "LISTENING… (no speech)" instead of a guess. The verdict is the mean
+P(AI) of the last 4 speech windows, the graph shows P(AI) over the last 30 s, and the slider at
+the bottom moves the decision threshold. Speak into the mic, or play an AI voice from a phone held
+near it. The model is trained for replayed audio (simulated loudspeaker, room and mic), but it is a
+prototype: through a real mic expect roughly 3 in 4 verdicts right, not the ~97% it gets on clean files.
+
+To make it better at exactly that, record real replays of your clips (human and AI alike) and
+retrain: `python data_collection/record_replay.py --per-folder 30` plays clips through the
+speakers while recording the mic (~70 min, can be stopped and resumed) into `audio/<class>/replay/`.
+
 ## Layout
 
 ```
+app.py                               desktop app: live microphone + file analysis
 detect.py  train.py  evaluate.py      the scripts you run
 build_local_csv.py                   indexes audio/ for training
 data_collection/   youtubethings.sh + ai_link.txt / human_link.txt -> downloads, clips, deletes;
-                   prepare_audio.py cuts any file/folder into clips (max 1000 per file)
+                   prepare_audio.py cuts any file/folder into clips (max 1000 per file);
+                   record_replay.py records real speaker -> room -> mic versions of clips
 detector/          library code (config.py has every setting; aasist.py is the original model)
 models/pretrained/   official AASIST weights
 models/vad/          Silero VAD speech detector
@@ -81,6 +105,7 @@ python evaluate.py --source Local --limit 600   # your held-out recordings, per 
 python evaluate.py --folder benchmark           # your hard cases, per voice + worst misses
 python evaluate.py --source Local --limit 600 --noise-snr 10   # same, with background noise mixed in
 python evaluate.py --source Local --limit 600 --channel        # same, through room + mic + MP3/Opus
+python evaluate.py --source Local --limit 600 --channel replay # same, phone speaker -> room -> laptop mic
 python detect.py recording.wav --threshold 0.5                 # override the stored decision threshold
 
 # experiments with a different data mix (own folder, never touches models/checkpoints/best.pt)

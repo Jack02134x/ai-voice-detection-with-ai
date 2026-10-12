@@ -28,7 +28,7 @@ Versions are the ones installed in `~/ai-things` on 2026-10-11.
 | Language | Human speech from | AI speech from |
 |---|---|---|
 | English | all online datasets; local YouTubers (beastboy, BlueSR, fireborn, immy, …) | all online datasets; ChatGPT, Gemini, Neuro-sama, AI YouTube videos, English manhwa recaps |
-| Hindi | local only: Hindi manhwa recap channels, Scary Pumpkin podcasts | local only: Sabzi Story Tv, Scary Pumpkin animated stories |
+| Hindi | local only: Hindi manhwa recap channels, Scary Pumpkin podcasts | local only: Sabzi Story Tv |
 | Arabic, Chinese, German, Romanian, Russian, Spanish | XMAD (Common Voice) | XMAD |
 | German, French, Italian, Chinese | CVoiceFake_small (Common Voice) | CVoiceFake_small |
 | German, Spanish | ODSS (German only) | ODSS |
@@ -52,6 +52,8 @@ can't act as a shortcut. Keep both classes represented in every language you add
 | [huggingface_hub](https://github.com/huggingface/huggingface_hub) | 1.31.0 | Apache-2.0 | streaming the online datasets over HTTP (`HfFileSystem`) |
 | [fsspec](https://github.com/fsspec/filesystem_spec) | 2026.6.0 | BSD-3-Clause | file access layer under `HfFileSystem` |
 | [python-soundfile](https://github.com/bastibe/python-soundfile) | 0.14.0 | BSD-3-Clause | reading FLAC/WAV clips |
+| [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) | 0.5.6 | MIT | microphone input (`app.py`), play-and-record (`record_replay.py`) |
+| [PySide6 (Qt for Python)](https://doc.qt.io/qtforpython-6/) | 6.11.2 | LGPL-3.0 | desktop app (`app.py`), adapted from the SIH project's `src/gui.py` |
 | [FFmpeg](https://ffmpeg.org) | n9.0.2 | LGPL-2.1+ / GPL | fallback decoder for unusual formats |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 2026.08.19 | Unlicense | downloading YouTube audio (`youtubethings.sh`) |
 | [Deno](https://deno.com) | 2.9.7 | MIT | JavaScript runtime yt-dlp uses for YouTube |
@@ -128,7 +130,12 @@ speech as AI, drop it with `--weight EmoSpoofTTS=0`.
 | Dataset | Clips (human / AI) | Content | Paper | License |
 |---|---|---|---|---|
 | [SONAR](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/SONAR) | 3,948 (2,274 / 1,674) | 8 recent speech-synthesis systems | Li et al., 2024 | CC-BY-NC-4.0 |
-| [DeepVoice](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/DeepVoice) | 5,053 (628 / 4,425) | RVC voice conversion between public figures | Bird & Lotfi, 2023 | MIT |
+| [DeepVoice](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/DeepVoice) | 646 held out (213 / 433) | RVC voice conversion between public figures: only Obama, Taylor Swift, Margot Robbie and conversions among them | Bird & Lotfi, 2023 | MIT |
+
+DeepVoice was test-only until v3. Since v4 (2026-10-12) the real speech of the other five people
+(Biden, Trump, Musk, Linus, Ryan) and the RVC conversions among them (2,083 clips, 415 / 1,668) are
+trained on (`DEEPVOICE_HELDOUT` in config.py), because RVC is the voice changer people use live.
+Conversions between a held-out and a training person (2,324 clips) are used for neither.
 
 Looked at but not used: ASVspoof2019_LA (its attacks are inside ASVspoof2021_LA), ASVspoof2021_PA
 (replay attacks), DECRO (its English human side is ASVspoof2019), HABLA (Spanish only), the
@@ -177,9 +184,11 @@ one folder per channel. Lists as of 2026-10-11:
 | AI | English | Manhwa Fresh | 3 |
 | AI | English | ManhwaDealer, Novelist Recaps, Gaku Recaps, Tobs Manhwa, Rimuru - Manhwa Recaps | 1 each |
 | AI | Hindi | Sabzi Story Tv (animated vegetable stories) | 16 |
-| AI | Hindi | Scary Pumpkin (animated horror stories) | 5 |
 | Human | Hindi | Queen Manhwa, NV MANHWA EXPLAIN, Vibey Tales, Nur's Manhwa Recap, ManhwaeXp, Modu Manhwa, With Nexus | 1 each |
 | Human | Hindi | Scary Pumpkin (multi-host horror podcasts) | 4 |
+
+Removed on 2026-10-12: Scary Pumpkin's 5 animated horror stories (1,331 clips), which had been
+labelled AI, because the channel never states that the narration is AI. Used up to v4.
 
 ### Benchmark
 

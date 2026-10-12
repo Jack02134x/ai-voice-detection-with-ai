@@ -23,6 +23,7 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 import pandas as pd
 
@@ -97,6 +98,18 @@ def assign_splits(rows):
             continue
         for r in items:
             r["split"] = "val" if r["group"] in val else "train"
+
+
+def inherit_replay_splits(rows):
+    """audio/<class>/replay/<folder>/<clip> (made by data_collection/record_replay.py)
+    takes the split of the clip it was recorded from, so a replayed validation clip
+    never ends up in training (and vice versa)."""
+    split_of = {(r["folder"], Path(r["file"]).name): r["split"] for r in rows
+                if not r["folder"].endswith("/replay")}
+    for r in rows:
+        if r["folder"].endswith("/replay"):
+            original = f"{r['folder'].split('/')[0]}/{Path(r['file']).parent.name}"
+            r["split"] = split_of.get((original, Path(r["file"]).name), "train")
 
 
 _vad = None
@@ -192,6 +205,7 @@ def main():
         rows = [r for r in rows if r["speech_s"] >= MIN_SPEECH_SECONDS]
 
     assign_splits(rows)
+    inherit_replay_splits(rows)
     df = pd.DataFrame(rows)
     df.to_csv(LOCAL_CSV, index=False)
 

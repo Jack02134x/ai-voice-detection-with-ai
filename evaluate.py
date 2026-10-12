@@ -8,6 +8,7 @@
     python evaluate.py --folder benchmark             # your hard-case benchmark, per voice
     python evaluate.py --source Local --limit 600 --noise-snr 10   # same clips with background noise
     python evaluate.py --source Local --limit 600 --channel        # ... played into a mic, MP3/Opus'd
+    python evaluate.py --folder benchmark --channel replay         # ... from a phone speaker into a mic
     python evaluate.py --folder benchmark --threshold 0.5          # a different decision threshold
 
 A benchmark folder looks like  benchmark/ai/<voice>/...  and  benchmark/human/<voice>/...
@@ -76,9 +77,9 @@ def main():
                    help="mix a background under every file at this SNR in dB")
     p.add_argument("--noise-kind", default="synthetic", choices=["synthetic", "babble", "recorded"],
                    help="background for --noise-snr; babble/recorded come from the training pool")
-    p.add_argument("--channel", action="store_true",
-                   help="pass every file through room reverb + speaker/mic response + MP3/Opus first "
-                        "(a 'played into a mic' test; works with --folder too)")
+    p.add_argument("--channel", nargs="?", const="mic", default=None, choices=["mic", "replay"],
+                   help="mic: room reverb + mic response + MP3/Opus; replay: phone speaker -> room -> "
+                        "laptop mic (the live-demo case). Works with --folder too")
     p.add_argument("--threshold", type=float, default=None,
                    help="call it AI at P(AI) >= this (default: the one stored in the checkpoint)")
     args = p.parse_args()
@@ -111,8 +112,8 @@ def main():
         effects.append(lambda wav: bg.mix(wav, args.noise_snr))
     if args.channel:
         from detector.augment import Channel
-        name += " + room/mic/codec"
-        effects.append(Channel(seed=0).full)
+        name += " + room/mic/codec" if args.channel == "mic" else " + phone speaker/room/mic"
+        effects.append(Channel(seed=0).full if args.channel == "mic" else Channel(seed=0).replay)
 
     if effects:
         def score(item):

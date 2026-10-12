@@ -72,14 +72,20 @@ TRAIN_SOURCES = {
     "CVoiceFake_small": (0.04,  14, 0.17,  0),  # Common Voice en/de/fr/it/zh through 5 vocoders
     "EmoSpoofTTS":      (0.04,   9, 0.00,  0),  # emotional F5-TTS / CosyVoice / StyleTTS2 (AI only!)
     "ODSS":             (0.03,   8, 0.30,  0),  # VITS / FastPitch, en/de/es
+    # added for v4: RVC voice conversion (the usual live voice changer). Speaker split below.
+    "DeepVoice":        (0.03,   2, 0.21,  0),
 }
+
+# DeepVoice people whose real speech and RVC conversions between each other are
+# never trained on (evaluate.py --source DeepVoice tests on exactly these).
+DEEPVOICE_HELDOUT = {"obama", "taylor", "margot"}
 
 # In-the-Wild speakers whose name hashes into this bucket are never trained on
 # (used for validation/testing instead) -> speaker-disjoint split.
 ITW_HELDOUT_BUCKETS = 5   # 1 in 5 speakers held out
 
 # Never used for training: pure generalisation tests.
-TEST_SOURCES = ["SONAR", "DeepVoice"]
+TEST_SOURCES = ["SONAR"]
 
 # ---------------------------------------------------------------------------
 # Your own recordings (YouTube + real-world), read from local disk.
@@ -89,7 +95,10 @@ TEST_SOURCES = ["SONAR", "DeepVoice"]
 LOCAL_AUDIO_ROOT = Path(os.environ.get("LOCAL_AUDIO_ROOT", ROOT))
 LOCAL_SOURCES_CSV = DATA_DIR / "local_sources.csv"   # per-folder role / group_regex (from the SIH project)
 LOCAL_CSV = Path(os.environ.get("LOCAL_CSV", DATA_DIR / "local_data.csv"))
-LOCAL_EXCLUDE = {"ai/uncovai_tts", "human/silence"}             # folders never used
+# folders never used. ai/Scary_Pumpkin was deleted on 2026-10-12 (not confirmed to be AI -- an
+# uncertain label does more harm than the data is worth); listed so it is skipped if re-downloaded.
+# Its human podcasts (human/Scary_Pumpkin) stay.
+LOCAL_EXCLUDE = {"ai/uncovai_tts", "human/silence", "ai/Scary_Pumpkin"}
 LOCAL_WEIGHT = 0.30          # share of each training batch drawn from your recordings
 LOCAL_VAL_FRACTION = 0.2     # recordings (whole videos / speakers) held out for validation
 LOCAL_FOLDER_CAP = 2000      # folders bigger than this are sampled as if they had this many files
@@ -108,7 +117,9 @@ BG_KINDS = {"recorded": 0.4, "babble": 0.3, "synthetic": 0.3}   # which kind of 
 # training clips that get room reverb / a speaker-mic frequency response / lossy
 # compression. Makes the model ignore the recording chain -- needed for live mic use.
 # Room matters most: v2 (trained without it) went from 3 % to 34 % EER on reverberant audio.
-CHANNEL_PROB = {"room": 0.3, "device": 0.25, "codec": 0.3}
+# "speaker" = played through a small loudspeaker (phone / laptop) first, then always a room:
+# the "AI voice from a phone held up to the mic" case. (v3 used room 0.3, device 0.25, codec 0.3.)
+CHANNEL_PROB = {"speaker": 0.15, "room": 0.35, "device": 0.3, "codec": 0.25}
 
 # ~0.24 GB VRAM per clip during training: 12 x 2 accumulation = effective batch 24
 # (the original AASIST recipe) in ~3 GB, so it fits a 6 GB laptop GPU.

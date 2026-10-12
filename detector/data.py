@@ -23,7 +23,7 @@ from torch.utils.data import IterableDataset, get_worker_info
 from .audio_utils import decode_bytes, eval_clip, load_file, training_clip
 from .augment import Channel
 from .background import Backgrounds, noise_files
-from .config import (BG_PROB, HUB_ORG, ITW_HELDOUT_BUCKETS, LOCAL_CSV, LOCAL_FOLDER_CAP, LOCAL_WEIGHT,
+from .config import (BG_PROB, DEEPVOICE_HELDOUT, HUB_ORG, ITW_HELDOUT_BUCKETS, LOCAL_CSV, LOCAL_FOLDER_CAP, LOCAL_WEIGHT,
                     SAMPLE_RATE, SHUFFLE_BUFFER, TRAIN_SOURCES)
 
 MIN_SECONDS = 0.5
@@ -108,6 +108,22 @@ def itw_speaker_heldout(notes: str) -> bool:
     return int(hashlib.md5(speaker.encode()).hexdigest(), 16) % ITW_HELDOUT_BUCKETS == 0
 
 
+def deepvoice_side(notes: str):
+    """'train', 'test' or None (dropped) for a DeepVoice row. Real speech goes by
+    its speaker; an RVC conversion "a-to-b" only counts if a and b are on the same side."""
+    stem = json.loads(notes).get("source_stem", "").lower()
+    people = [stem.removesuffix("-original")] if stem.endswith("-original") else stem.split("-to-")
+    held = {p in DEEPVOICE_HELDOUT for p in people}
+    return None if len(held) > 1 else ("test" if held.pop() else "train")
+
+
+# sources split by speaker inside their rows instead of by shard: notes -> 'train' / 'test' / None
+ROW_SPLITS = {
+    "InTheWild": lambda notes: "test" if itw_speaker_heldout(notes) else "train",
+    "DeepVoice": deepvoice_side,
+}
+
+
 def iter_rows(fs, path, rng=None, keep=None):
     """Yield (audio_bytes, label, notes) from one parquet shard.
 
@@ -175,7 +191,8 @@ class TrainStream(IterableDataset):
             shards = list_shards(fs, name)
             shards = shards[:len(shards) - n_val]        # validation shards never trained on
             mine = shards[wid::nw] or [shards[wid % len(shards)]]
-            keep = (lambda n: not itw_speaker_heldout(n)) if name == "InTheWild" else None
+            split = ROW_SPLITS.get(name)
+            keep = (lambda n, split=split: split(n) == "train") if split else None
             names.append(name)
             weights.append(self.mix[name])
             sources.append(endless_source(fs, mine, rng, keep))
@@ -229,8 +246,8 @@ def stream_eval_rows(name, limit=None, heldout_only=True):
         n_val = TRAIN_SOURCES[name][3]
         if n_val:
             shards = shards[-n_val:]
-        elif name == "InTheWild":
-            keep = itw_speaker_heldout
+        elif name in ROW_SPLITS:
+            keep = lambda n: ROW_SPLITS[name](n) == "test"  # noqa: E731
         else:
             raise ValueError(f"{name} is fully used for training; it has no held-out part")
     count = 0
