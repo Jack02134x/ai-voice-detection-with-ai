@@ -93,29 +93,35 @@ memory with HTTP range requests and **never saved to disk**. Mostly English (see
 
 ### Training
 
-| Dataset | Share of batch* | Clips (human / AI) | AI side | Paper | License |
+Since 2026-10-13 the online part is a **fixed pool of 50,000 clips** (Jack's cap), picked once at
+random across all training shards and listed in `data/online_subset.csv`, so every run sees the
+same clips. It is half of every batch; your recordings are the other half.
+
+| Dataset | Clips used (human / AI) | Of available (human / AI) | AI side | Paper | License |
 |---|---|---|---|---|---|
-| [ASVspoof5](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof5) | 23.7% | 680,774 (138,688 / 542,086) | 2024 challenge: modern TTS and voice conversion, codecs, crowdsourced speakers | Wang et al., 2024 | ODC-By |
-| [InTheWild](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/InTheWild) | 11.1% | 31,779 (19,963 / 11,816) | real-world deepfakes of celebrities and politicians | Müller et al., 2022 | Apache-2.0 |
-| [ASVspoof2021_DF](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF) | 7.4% | 611,829 (22,617 / 589,212) | 100+ vocoders, MP3/AAC compression | Yamagishi et al., 2021 | other (see card) |
-| [CD-ADD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/CD-ADD) | 7.4% | 20,786 (3,661 / 17,125) | zero-shot TTS: VALL-E, OpenVoice, YourTTS, WhisperSpeech, Seamless | Li et al., 2024 | CC-BY-4.0 |
-| [XMAD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/XMAD) | 7.4% | 368,085 (160,656 / 207,429) | XMAD-Bench: 7 languages on Common Voice speakers; kNN-VC, FreeVC, VITS+kNN, XTTS-v2 | arXiv 2506.00462, 2025 | CC-BY-NC-SA-4.0 |
-| [DFADD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/DFADD) | 5.2% | 3,755 (755 / 3,000) | diffusion / flow-matching TTS (Grad-TTS, Matcha-TTS, …) | Du et al., 2024 | MIT |
-| [ASVspoof2021_LA](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof2021_LA) | 4.4% | 181,566 (18,452 / 163,114) | 2019 attacks through telephony / transmission channels | Yamagishi et al., 2021 | ODC-By |
-| [LibriSeVoc](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/LibriSeVoc) | 3.0% | 18,487 (2,641 / 15,846) | LibriTTS re-synthesised by 6 vocoders | Sun et al., 2023 | CC-BY-SA-4.0 |
-| [CVoiceFake_small](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/CVoiceFake_small) | 3.0% | 138,136 (23,544 / 114,592) | Common Voice (en/de/fr/it/zh) re-synthesised by vocoders (Griffin-Lim, WORLD, MelGAN, Parallel WaveGAN, …) | Li et al., CCS 2024 (SafeEar) | CC-BY-4.0 |
-| [EmoSpoofTTS](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/EmoSpoofTTS) | 3.0% | 36,000 (0 / 36,000) | emotional speech from F5-TTS, CosyVoice, StyleTTS2 (ESD speakers) | Mahapatra et al., 2025 | CC-BY-4.0 |
-| [ODSS](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ODSS) | 2.2% | 26,954 (7,961 / 18,993) | VITS and FastPitch+HiFi-GAN in English, German, Spanish | ODSS, IEEE 2023 | CC-BY-SA-4.0 |
+| [ASVspoof5](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof5) | 7,000 / 6,000 | 138,688 / 542,086 | 2024 challenge: modern TTS and voice conversion, codecs, crowdsourced speakers | Wang et al., 2024 | ODC-By |
+| [InTheWild](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/InTheWild) | 7,000 / 5,000 | 19,963 / 11,816 | real-world deepfakes of celebrities and politicians (training speakers only) | Müller et al., 2022 | Apache-2.0 |
+| [XMAD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/XMAD) | 6,000 / 6,000 | 160,656 / 207,429 | XMAD-Bench: 7 languages on Common Voice speakers; kNN-VC, FreeVC, VITS+kNN, XTTS-v2 | arXiv 2506.00462, 2025 | CC-BY-NC-SA-4.0 |
+| [CD-ADD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/CD-ADD) | 3,000 / 3,000 | 3,661 / 17,125 | zero-shot TTS: VALL-E, OpenVoice, YourTTS, WhisperSpeech, Seamless | Li et al., 2024 | CC-BY-4.0 |
+| [DFADD](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/DFADD) | 700 / 2,300 | 755 / 3,000 | diffusion / flow-matching TTS (Grad-TTS, Matcha-TTS, …) | Du et al., 2024 | MIT |
+| [EmoSpoofTTS](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/EmoSpoofTTS) | 0 / 2,000 | 0 / 36,000 | emotional speech from F5-TTS, CosyVoice, StyleTTS2 (ESD speakers) | Mahapatra et al., 2025 | CC-BY-4.0 |
+| [DeepVoice](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/DeepVoice) | 400 / 1,600 | 415 / 1,668 (training people) | RVC voice conversion between public figures | Bird & Lotfi, 2023 | MIT |
+| **Total** | **24,100 / 25,900** | | | | |
 
-\* With default settings; the remaining 22.2% comes from local recordings. Change with
-`train.py --weight NAME=W`, preview with `train.py --show-mix`.
+Change the quotas in `TRAIN_SOURCES` (config.py); the pool is rebuilt automatically. Preview the
+batch mix with `train.py --show-mix`.
 
-XMAD, CVoiceFake_small, EmoSpoofTTS and ODSS were added for v3 (2026-10-11), after v2 scored only
-8-16% on SONAR's flow-matching systems (VoiceBox, FlashSpeech, NaturalSpeech 3). **EmoSpoofTTS is
-the one exception to "both classes in every source":** its human counterpart (ESD) is licensed
-separately and isn't on the Hub. It is kept at a small weight because F5-TTS and CosyVoice are the
-closest thing available to those systems. If the model starts flagging calm or emotional read
-speech as AI, drop it with `--weight EmoSpoofTTS=0`.
+**Dropped on 2026-10-13** as repetitive (mostly older vocoders re-synthesising the same corpora):
+[ASVspoof2021_DF](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF)
+(Yamagishi et al., 2021), [ASVspoof2021_LA](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ASVspoof2021_LA),
+[LibriSeVoc](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/LibriSeVoc) (Sun et al., 2023),
+[CVoiceFake_small](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/CVoiceFake_small) (SafeEar, CCS 2024),
+[ODSS](https://huggingface.co/datasets/SpeechAntiSpoofingBenchmarks/ODSS). Models up to v5 were trained
+with them; they can still be used as tests (`evaluate.py --source <name>`).
+
+**EmoSpoofTTS is the one exception to "both classes in every source":** its human counterpart (ESD)
+is licensed separately and isn't on the Hub. It is kept small because F5-TTS and CosyVoice are the
+closest thing available to the newest TTS systems.
 
 ### Validation (during training, never trained on)
 

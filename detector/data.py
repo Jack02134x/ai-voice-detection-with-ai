@@ -23,12 +23,13 @@ from torch.utils.data import IterableDataset, get_worker_info
 from .audio_utils import decode_bytes, eval_clip, load_file, training_clip
 from .augment import Channel
 from .background import Backgrounds, noise_files
-from .config import (BG_PROB, DEEPVOICE_HELDOUT, HUB_ORG, ITW_HELDOUT_BUCKETS, LOCAL_CSV, LOCAL_FOLDER_CAP, LOCAL_WEIGHT,
-                    SAMPLE_RATE, SHUFFLE_BUFFER, TRAIN_SOURCES)
+from .config import (BG_PROB, DATA_DIR, DEEPVOICE_HELDOUT, HUB_ORG, ITW_HELDOUT_BUCKETS, LOCAL_CSV, LOCAL_FOLDER_CAP,
+                     LOCAL_WEIGHT, ONLINE_WEIGHT, SAMPLE_RATE, SHUFFLE_BUFFER, TRAIN_SOURCES)
 
 MIN_SECONDS = 0.5
 LOCAL = "Local"   # name of your own recordings as a data source
 MIC = "Local+mic"  # the same held-out recordings through room + mic + codec (validation only)
+SUBSET_CSV = DATA_DIR / "online_subset.csv"   # which online rows make up the fixed training pool
 
 
 def decode_payload(payload):
@@ -48,7 +49,8 @@ def local_rows(split):
 
 def default_mix():
     """Share of training data per source: {name: weight}, incl. LOCAL."""
-    mix = {name: w for name, (w, *_) in TRAIN_SOURCES.items()}
+    total = sum(h + a for h, a, _ in TRAIN_SOURCES.values())
+    mix = {name: ONLINE_WEIGHT * (h + a) / total for name, (h, a, _) in TRAIN_SOURCES.items()}
     mix[LOCAL] = LOCAL_WEIGHT
     return mix
 
@@ -149,6 +151,84 @@ def iter_rows(fs, path, rng=None, keep=None):
                 yield audio[i]["bytes"], labels[i], notes[i]
 
 
+def build_online_subset(seed=0):
+    """Choose the fixed online training pool (TRAIN_SOURCES quotas) and write it to
+    SUBSET_CSV: one line per (source, shard, row_group, row, label). Only the label /
+    notes columns are read here, no audio. Row groups are drawn at random from ALL the
+    training shards (many speakers / systems, not a few whole shards), taking rows
+    until each class quota is met."""
+    import pandas as pd
+    fs, rng, out = HfFileSystem(), random.Random(seed), []
+    for name, (want_h, want_a, n_val) in TRAIN_SOURCES.items():
+        shards = list_shards(fs, name)
+        shards = shards[:len(shards) - n_val]
+        split = ROW_SPLITS.get(name)
+        files = {path: retry(lambda: pq.ParquetFile(fs.open(path, "rb", block_size=2**20)), f"opening {path}")
+                 for path in shards}
+        pairs = [(path, g) for path, pf in files.items() for g in range(pf.num_row_groups)]
+        rng.shuffle(pairs)
+        got = {0: 0, 1: 0}
+        want = {0: want_h, 1: want_a}
+        for path, g in pairs:
+            if got[0] >= want[0] and got[1] >= want[1]:
+                break
+            meta = retry(lambda: files[path].read_row_group(g, columns=["label", "notes"]), f"{name} labels")
+            labels, notes = meta.column("label").to_pylist(), meta.column("notes").to_pylist()
+            for i, (label, note) in enumerate(zip(labels, notes)):
+                if got[label] < want[label] and (split is None or split(note) == "train"):
+                    out.append((name, path, g, i, label))
+                    got[label] += 1
+        print(f"[subset] {name:12s} {got[0]:6d} human / {got[1]:6d} AI"
+              + ("" if got == want else f"   (wanted {want[0]} / {want[1]}: not enough rows)"))
+    df = pd.DataFrame(out, columns=["source", "shard", "row_group", "row", "label"])
+    df.to_csv(SUBSET_CSV, index=False)
+    print(f"[subset] {len(df)} online clips -> {SUBSET_CSV}")
+    return df
+
+
+def online_subset():
+    """{source: [(shard, row_group, [rows])]} for the fixed online pool; (re)builds
+    SUBSET_CSV when it is missing or the quotas in TRAIN_SOURCES changed."""
+    import pandas as pd
+    df = pd.read_csv(SUBSET_CSV) if SUBSET_CSV.exists() else None
+    if df is not None:
+        counts = df.groupby(["source", "label"]).size().to_dict()
+        stale = set(df["source"]) != {n for n, (h, a, _) in TRAIN_SOURCES.items() if h + a} or any(
+            counts.get((n, 0), 0) > h or counts.get((n, 1), 0) > a or
+            (counts.get((n, 0), 0) < h and counts.get((n, 1), 0) < a)
+            for n, (h, a, _) in TRAIN_SOURCES.items())
+        if stale:
+            print("[subset] TRAIN_SOURCES changed: rebuilding the online pool")
+            df = None
+    if df is None:
+        df = build_online_subset()
+    groups = defaultdict(list)
+    for (name, shard, g), rows in df.groupby(["source", "shard", "row_group"])["row"]:
+        groups[name].append((shard, int(g), sorted(rows.tolist())))
+    return dict(groups)
+
+
+def endless_subset(fs, groups, rng):
+    """Cycle forever over the chosen rows of `groups` [(shard, row_group, rows)],
+    one row group's audio in RAM at a time, in a fresh random order each pass."""
+    while True:
+        order = groups[:]
+        rng.shuffle(order)
+        for shard, g, rows in order:
+            try:
+                with fs.open(shard, "rb", block_size=8 * 2**20) as f:
+                    t = pq.ParquetFile(f).read_row_group(g, columns=["audio", "label", "notes"])
+                audio, labels, notes = (t.column(c).to_pylist() for c in ("audio", "label", "notes"))
+            except Exception as e:  # network hiccup: move on
+                print(f"[data] {shard.split('/')[-3]}: {type(e).__name__}: {e} -- skipping row group")
+                time.sleep(2)
+                continue
+            rows = rows[:]
+            rng.shuffle(rows)
+            for i in rows:
+                yield audio[i]["bytes"], labels[i], notes[i]
+
+
 def endless_source(fs, shards, rng, keep=None):
     """Cycle through `shards` forever in a fresh random order each pass."""
     while True:
@@ -163,8 +243,8 @@ def endless_source(fs, shards, rng, keep=None):
 
 
 class TrainStream(IterableDataset):
-    """Infinite stream of (waveform[NB_SAMP], label) mixed from TRAIN_SOURCES
-    and your recordings. `mix` overrides source weights (see default_mix),
+    """Infinite stream of (waveform[NB_SAMP], label) mixed from the fixed online
+    pool (TRAIN_SOURCES, see online_subset) and your recordings. `mix` overrides source weights (see default_mix),
     `folder_mult` multiplies individual local folders' weights, a share
     `bg_prob` of clips (human and AI alike) gets a background sound mixed in,
     and `channel_scale` scales the room / device / codec augmentation (0 = off)."""
@@ -172,6 +252,7 @@ class TrainStream(IterableDataset):
     def __init__(self, seed=0, mix=None, folder_mult=None, bg_prob=BG_PROB, channel_scale=1.0):
         self.seed = seed
         self.mix = mix or default_mix()
+        self.subset = online_subset() if any(self.mix.get(n, 0) > 0 for n in TRAIN_SOURCES) else {}
         self.folder_mult = folder_mult or {}
         self.bg_prob = bg_prob
         self.channel_scale = channel_scale
@@ -185,17 +266,14 @@ class TrainStream(IterableDataset):
         fs = HfFileSystem()
 
         names, weights, sources = [], [], []
-        for name, (_, _, _, n_val) in TRAIN_SOURCES.items():
-            if self.mix.get(name, 0) <= 0:
+        for name in TRAIN_SOURCES:
+            groups = self.subset.get(name, [])
+            if self.mix.get(name, 0) <= 0 or not groups:
                 continue
-            shards = list_shards(fs, name)
-            shards = shards[:len(shards) - n_val]        # validation shards never trained on
-            mine = shards[wid::nw] or [shards[wid % len(shards)]]
-            split = ROW_SPLITS.get(name)
-            keep = (lambda n, split=split: split(n) == "train") if split else None
+            mine = groups[wid::nw] or [groups[wid % len(groups)]]
             names.append(name)
             weights.append(self.mix[name])
-            sources.append(endless_source(fs, mine, rng, keep))
+            sources.append(endless_subset(fs, mine, rng))
 
         local = local_rows("train") if self.mix.get(LOCAL, 0) > 0 else []
         if local:
@@ -243,7 +321,7 @@ def stream_eval_rows(name, limit=None, heldout_only=True):
     shards = list_shards(fs, name)
     keep = None
     if name in TRAIN_SOURCES and heldout_only:
-        n_val = TRAIN_SOURCES[name][3]
+        n_val = TRAIN_SOURCES[name][2]
         if n_val:
             shards = shards[-n_val:]
         elif name in ROW_SPLITS:

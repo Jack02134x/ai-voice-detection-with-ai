@@ -1,12 +1,13 @@
 """Fine-tune AASIST on audio streamed from the Hugging Face Hub + your recordings.
 
     python train.py                       # fine-tune pretrained AASIST
-    python train.py --resume              # continue from models/checkpoints/last.pt
+    python train.py --run v6 --init models/checkpoints/v5/best.pt   # fine-tune into models/checkpoints/v6/
+    python train.py --run v6 --resume     # continue from models/checkpoints/v6/last.pt
     python train.py --arch AASIST-L       # lighter model
 
 Experiments with a different data mix (each run gets its own folder):
 
-    python train.py --run local40 --init models/checkpoints/best_copy_step11000.pt --steps 4000 \\
+    python train.py --run local40 --init models/checkpoints/v5/best.pt --steps 4000 \\
         --weight Local=0.4 --folder-weight ai/Manhwa_explained=2
 
     --weight NAME=W          share of a source (ASVspoof5, CD-ADD, ..., Local); 0 drops it
@@ -37,7 +38,7 @@ from detector.model import build_model, load_pretrained
 
 def class_weights(mix):
     """Inverse-frequency CE weights from the expected human share of the mix."""
-    human_frac = {name: frac for name, (_, _, frac, _) in TRAIN_SOURCES.items()}
+    human_frac = {name: h / max(h + a, 1) for name, (h, a, _) in TRAIN_SOURCES.items()}
     human_frac[LOCAL] = 0.5                         # local data is sampled 50/50
     total = sum(mix.values())
     human = sum(w * human_frac[name] for name, w in mix.items()) / total
@@ -131,7 +132,9 @@ def main():
     p.add_argument("--resume", action="store_true")
     p.add_argument("--from-scratch", action="store_true", help="don't start from pretrained weights")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--run", default="", help="experiment name: checkpoints go to models/checkpoints/<run>/")
+    p.add_argument("--run", default=None,
+                   help="experiment name: checkpoints go to models/checkpoints/<run>/ (default: run_<date>_<time>). "
+                        "Never models/checkpoints/ itself: its best.pt is the model the app uses")
     p.add_argument("--init", default=None, help="start from this checkpoint's weights (fresh optimizer)")
     p.add_argument("--weight", action="append", default=[], metavar="NAME=W",
                    help="data-mix weight of a source, repeatable")
@@ -154,7 +157,11 @@ def main():
 
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    run_dir = CHECKPOINT_DIR / args.run if args.run else CHECKPOINT_DIR
+    if not args.run:
+        if args.resume:
+            raise SystemExit("--resume needs --run <name> (the folder in models/checkpoints/ to continue)")
+        args.run = time.strftime("run_%Y%m%d_%H%M")
+    run_dir = CHECKPOINT_DIR / args.run
     run_dir.mkdir(parents=True, exist_ok=True)
     last_path, best_path = run_dir / "last.pt", run_dir / "best.pt"
     print(f"Checkpoints: {run_dir}")

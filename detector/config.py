@@ -58,23 +58,24 @@ ARCHS = {
 # ---------------------------------------------------------------------------
 HUB_ORG = "SpeechAntiSpoofingBenchmarks"
 
-# name: (sampling weight, number of parquet shards, fraction human, shards held out for validation)
+# Online data is a FIXED pool of 50,000 clips (Jack, 2026-10-13: "i will allow 50k 4 sec audio
+# files ai and human included from online sources"). Exactly which rows are used is written to
+# data/online_subset.csv the first time (build_online_subset in data.py), so every run trains on
+# the same clips. Training reads only those rows, streamed as before (never saved to disk).
+#
+# name: (human clips, AI clips, shards held out for validation)
 TRAIN_SOURCES = {
-    "ASVspoof5":        (0.32, 200, 0.20, 10),  # 2024 challenge, modern TTS/VC + codecs
-    "ASVspoof2021_DF":  (0.10,  80, 0.04,  0),  # 100+ vocoders, MP3/AAC compression
-    "ASVspoof2021_LA":  (0.06,  24, 0.10,  0),  # telephony codecs / transmission
-    "InTheWild":        (0.15,   8, 0.63,  0),  # real-world celebrity deepfakes (speaker split below)
-    "CD-ADD":           (0.10,   8, 0.18,  0),  # zero-shot TTS: VALL-E, OpenVoice, YourTTS, ...
-    "DFADD":            (0.07,   2, 0.20,  0),  # diffusion / flow-matching TTS
-    "LibriSeVoc":       (0.04,   8, 0.14,  0),  # six neural vocoders on LibriTTS
-    # added for v3 -- more languages, everyday microphones, newer TTS:
-    "XMAD":             (0.10, 200, 0.44,  0),  # 7 languages, Common Voice mics, kNN-VC/FreeVC/XTTS-v2
-    "CVoiceFake_small": (0.04,  14, 0.17,  0),  # Common Voice en/de/fr/it/zh through 5 vocoders
-    "EmoSpoofTTS":      (0.04,   9, 0.00,  0),  # emotional F5-TTS / CosyVoice / StyleTTS2 (AI only!)
-    "ODSS":             (0.03,   8, 0.30,  0),  # VITS / FastPitch, en/de/es
-    # added for v4: RVC voice conversion (the usual live voice changer). Speaker split below.
-    "DeepVoice":        (0.03,   2, 0.21,  0),
+    "ASVspoof5":   (7000, 6000, 10),  # 2024 challenge: modern TTS/VC, crowd-sourced speakers, codecs
+    "InTheWild":   (7000, 5000,  0),  # real-world recordings of public figures (speaker split below)
+    "XMAD":        (6000, 6000,  0),  # 7 languages, Common Voice phone/laptop mics; kNN-VC/FreeVC/XTTS-v2
+    "CD-ADD":      (3000, 3000,  0),  # zero-shot TTS: VALL-E, OpenVoice, YourTTS, ...
+    "DFADD":       ( 700, 2300,  0),  # diffusion / flow-matching TTS
+    "EmoSpoofTTS": (   0, 2000,  0),  # emotional F5-TTS / CosyVoice / StyleTTS2 (AI only!)
+    "DeepVoice":   ( 400, 1600,  0),  # RVC voice conversion, training speakers only (split below)
 }
+# Dropped on 2026-10-13 as repetitive (mostly older vocoders saying the same corpora again):
+# ASVspoof2021_DF, ASVspoof2021_LA, LibriSeVoc, CVoiceFake_small, ODSS. Still usable as tests.
+ONLINE_WEIGHT = 1.0          # share of every batch from the online pool (vs LOCAL_WEIGHT below)
 
 # DeepVoice people whose real speech and RVC conversions between each other are
 # never trained on (evaluate.py --source DeepVoice tests on exactly these).
@@ -99,7 +100,7 @@ LOCAL_CSV = Path(os.environ.get("LOCAL_CSV", DATA_DIR / "local_data.csv"))
 # uncertain label does more harm than the data is worth); listed so it is skipped if re-downloaded.
 # Its human podcasts (human/Scary_Pumpkin) stay.
 LOCAL_EXCLUDE = {"ai/uncovai_tts", "human/silence", "ai/Scary_Pumpkin"}
-LOCAL_WEIGHT = 0.30          # share of each training batch drawn from your recordings
+LOCAL_WEIGHT = 1.0           # your recordings: with ONLINE_WEIGHT 1.0 that is half of every batch
 LOCAL_VAL_FRACTION = 0.2     # recordings (whole videos / speakers) held out for validation
 LOCAL_FOLDER_CAP = 2000      # folders bigger than this are sampled as if they had this many files
 

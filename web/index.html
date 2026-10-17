@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Authenticity Detector</title>
+<style>
+  :root {
+    --bg: #070a12;
+    --panel: #0e1422;
+    --panel-2: #121a2c;
+    --line: #1f2a40;
+    --text: #e8edf7;
+    --muted: #8b97b0;
+    --dim: #56627c;
+    --human: #2dd4bf;
+    --ai: #fb4f6f;
+    --accent: #8b9cff;
+    --warn: #f5b94a;
+    --radius: 18px;
+    --font: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1100px 600px at 12% -10%, rgba(139,156,255,.13), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(45,212,191,.08), transparent 60%),
+      radial-gradient(900px 700px at 50% 120%, rgba(251,79,111,.07), transparent 60%),
+      var(--bg);
+    color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 40px; }
+
+  /* header */
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .logo { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center;
+          background: linear-gradient(135deg, var(--human), var(--accent) 55%, var(--ai));
+          box-shadow: 0 8px 30px rgba(139,156,255,.35); }
+  .logo svg { width: 24px; height: 24px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); background: rgba(14,20,34,.7);
+           padding: 6px 10px; border-radius: 999px; font-family: var(--mono); }
+  .badge b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--dim); vertical-align: 1px; }
+  .dot.on { background: var(--human); box-shadow: 0 0 10px var(--human); }
+  .dot.err { background: var(--ai); }
+
+  /* tabs */
+  .tabs { display: inline-flex; padding: 4px; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 14px; margin-bottom: 18px; }
+  .tab { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--font); padding: 9px 18px;
+         border-radius: 10px; cursor: pointer; transition: .2s; }
+  .tab.active { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .view { display: none; } .view.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* layout */
+  .grid { display: grid; grid-template-columns: 400px 1fr; gap: 18px; }
+  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: linear-gradient(180deg, rgba(18,26,44,.92), rgba(14,20,34,.92)); border: 1px solid var(--line);
+          border-radius: var(--radius); padding: 20px; position: relative; overflow: hidden; }
+  .card h3 { margin: 0 0 14px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .stack { display: grid; gap: 18px; align-content: start; }
+
+  /* verdict / gauge */
+  .verdict-card { display: grid; justify-items: center; text-align: center; padding: 26px 20px 22px; }
+  .verdict-card::before { content: ""; position: absolute; inset: -40%; background: radial-gradient(circle at 50% 40%, var(--glow, transparent), transparent 55%);
+          opacity: .22; transition: background .6s; pointer-events: none; }
+  .gauge { width: 260px; height: 260px; position: relative; }
+  .gauge svg { width: 100%; height: 100%; transform: rotate(135deg); }
+  .gauge .track { stroke: #1a2338; }
+  .gauge .val { transition: stroke-dashoffset .45s cubic-bezier(.2,.8,.2,1), stroke .45s; filter: drop-shadow(0 0 10px var(--glow, transparent)); }
+  .gauge .thr { stroke: var(--warn); }
+  .gauge .center { position: absolute; inset: 0; display: grid; place-content: center; }
+  .pct { font: 700 54px/1 var(--font); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 22px; color: var(--muted); font-weight: 600; }
+  .pct-label { color: var(--muted); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; margin-top: 6px; }
+  .verdict { margin-top: 10px; font: 800 30px/1.1 var(--font); letter-spacing: .02em; color: var(--muted); transition: color .3s; }
+  .verdict.human { color: var(--human); } .verdict.ai { color: var(--ai); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 6px; min-height: 18px; }
+  .bars { width: 100%; display: grid; gap: 8px; margin-top: 16px; }
+  .bar { display: grid; grid-template-columns: 62px 1fr 52px; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; letter-spacing: .06em; }
+  .bar .t { height: 8px; border-radius: 99px; background: #1a2338; overflow: hidden; }
+  .bar .f { height: 100%; width: 0; border-radius: 99px; transition: width .45s cubic-bezier(.2,.8,.2,1); }
+  .bar.h .f { background: linear-gradient(90deg, #14b8a6, var(--human)); } .bar.h span:first-child { color: var(--human); }
+  .bar.a .f { background: linear-gradient(90deg, #e11d48, var(--ai)); } .bar.a span:first-child { color: var(--ai); }
+  .bar span:last-child { text-align: right; font-family: var(--mono); color: var(--text); font-weight: 500; }
+
+  /* controls */
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  select, input[type=text] { background: #0b1120; color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+          padding: 10px 12px; font: 14px var(--font); min-width: 0; }
+  select { flex: 1; }
+  .btn { border: 0; border-radius: 12px; padding: 12px 18px; font: 700 14px var(--font); cursor: pointer; color: #061016;
+         background: linear-gradient(135deg, var(--human), #5eead4); box-shadow: 0 8px 24px rgba(45,212,191,.25); transition: .2s; }
+  .btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
+  .btn.stop { color: #fff; background: linear-gradient(135deg, #e11d48, var(--ai)); box-shadow: 0 8px 24px rgba(251,79,111,.3); }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); box-shadow: none; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .rec { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .rec .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+  .rec.on .pulse { background: var(--ai); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(251,79,111,.6); } 50% { box-shadow: 0 0 0 7px rgba(251,79,111,0); } }
+
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+  .seg button { border: 0; background: #0b1120; color: var(--muted); padding: 9px 12px; font: 600 13px var(--font); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on[data-v=none] { color: var(--text); background: var(--panel-2); }
+  .seg button.on[data-v=human] { color: #061016; background: var(--human); }
+  .seg button.on[data-v=ai] { color: #fff; background: var(--ai); }
+
+  canvas { width: 100%; display: block; border-radius: 12px; background: #090e1a; border: 1px solid #172036; }
+  .wave { height: 120px; }
+  .timeline { height: 190px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: #0b1120; border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .stat .k { font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+  .stat .v { font: 600 20px var(--mono); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .thr-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 13px; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--warn); }
+  .mono { font-family: var(--mono); color: var(--text); }
+  .meter { height: 6px; border-radius: 99px; background: #1a2338; overflow: hidden; margin-top: 10px; }
+  .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--human), var(--warn), var(--ai)); transition: width .1s; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 30px); opacity: 0; background: var(--panel-2);
+           border: 1px solid var(--line); padding: 12px 16px; border-radius: 12px; font-size: 14px; transition: .3s; max-width: 90vw; }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+  /* file tab */
+  .drop { border: 1.5px dashed #2a3856; border-radius: var(--radius); padding: 38px 20px; text-align: center; cursor: pointer;
+          transition: .2s; background: rgba(11,17,32,.6); }
+  .drop.over { border-color: var(--accent); background: rgba(139,156,255,.07); }
+  .drop .big { font-size: 17px; font-weight: 700; margin: 10px 0 4px; }
+  .drop .small { color: var(--muted); font-size: 13px; }
+  .spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #233050; border-top-color: var(--accent);
+             animation: spin .8s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 26px; }
+  kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 6px; border-radius: 6px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#061016" stroke-width="2.2" stroke-linecap="round">
+      <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg></div>
+    <div>
+      <h1>Voice Authenticity Detector</h1>
+      <div class="sub">Human or AI-generated? &nbsp;AASIST · Silero VAD · real-time</div>
+    </div>
+    <div class="badges">
+      <span class="badge"><span class="dot" id="srvDot"></span><span id="srvText">connecting…</span></span>
+      <span class="badge">model <b id="modelName">—</b></span>
+      <span class="badge">latency <b id="latency">—</b></span>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-view="live">● Live microphone</button>
+    <button class="tab" data-view="file">File analysis</button>
+  </div>
+
+  <!-- LIVE -->
+  <section class="view active" id="view-live">
+    <div class="grid">
+      <div class="stack">
+        <div class="card verdict-card" id="liveCard">
+          <div class="gauge" id="liveGauge"></div>
+          <div class="verdict" id="liveVerdict">READY</div>
+          <div class="hint" id="liveHint">Press Start and speak, or play a voice near the mic.</div>
+          <div class="bars">
+            <div class="bar h"><span>HUMAN</span><div class="t"><div class="f" id="barH"></div></div><span id="valH">—</span></div>
+            <div class="bar a"><span>AI</span><div class="t"><div class="f" id="barA"></div></div><span id="valA">—</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Microphone</h3>
+          <div class="row">
+            <select id="micSelect"><option value="">Default microphone</option></select>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn" id="startBtn">Start listening</button>
+            <button class="btn ghost" id="resetBtn">Reset</button>
+            <span class="rec" id="recState"><span class="pulse"></span><span id="recText">idle</span></span>
+          </div>
+          <div class="meter" title="input level"><i id="levelBar"></i></div>
+          <div class="status" id="liveStatus">Browser noise suppression, echo cancellation and auto-gain are turned off.</div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h3>Live input</h3>
+          <canvas class="wave" id="wave"></canvas>
+        </div>
+        <div class="card">
+          <h3>P(AI) over the last 30 seconds</h3>
+          <canvas class="timeline" id="timeline"></canvas>
+          <div class="thr-row" style="margin-top:14px">
+            <span>Threshold</span>
+            <input type="range" id="thr" min="5" max="95" value="45">
+            <span class="mono" id="thrVal">0.45</span>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Session P(AI)</div><div class="v" id="stSession">—</div></div>
+          <div class="stat"><div class="k">Speech windows</div><div class="v" id="stWindows">0</div></div>
+          <div class="stat"><div class="k">AI windows</div><div class="v" id="stAiShare">—</div></div>
+          <div class="stat"><div class="k">Listening</div><div class="v" id="stTime">0:00</div></div>
+        </div>
+        <div class="card">
+          <h3>Record training data</h3>
+          <div class="row">
+            <div class="seg" id="labelSeg">
+              <button data-v="none" class="on">Don't save</button>
+              <button data-v="human">Human</button>
+              <button data-v="ai">AI</button>
+            </div>
+            <input type="text" id="saveName" value="jack" title="folder: audio/&lt;class&gt;/mic_&lt;name&gt;" style="width:120px">
+          </div>
+          <div class="status">On stop, the session is cut into 4 s clips in <span class="mono">audio/&lt;class&gt;/mic_&lt;name&gt;/</span>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FILE -->
+  <section class="view" id="view-file">
+    <div class="grid">
+      <div class="stack">
+        <div class="card verdict-card">
+          <div class="gauge" id="fileGauge"></div>
+          <div class="verdict" id="fileVerdict">NO FILE</div>
+          <div class="hint" id="fileHint">Drop a recording on the right.</div>
+          <div class="bars">
+            <div class="bar h"><span>HUMAN</span><div class="t"><div class="f" id="fbarH"></div></div><span id="fvalH">—</span></div>
+            <div class="bar a"><span>AI</span><div class="t"><div class="f" id="fbarA"></div></div><span id="fvalA">—</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="stack">
+        <label class="drop" id="drop">
+          <input type="file" id="fileInput" hidden accept="audio/*,video/*,.opus,.mkv,.webm">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8b9cff" stroke-width="1.8" stroke-linecap="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <div class="big" id="dropTitle">Drop an audio or video file</div>
+          <div class="small" id="dropSub">or click to browse · any length · wav, mp3, m4a, opus, mp4, mkv…</div>
+        </label>
+        <div class="card">
+          <h3>P(AI) per 4-second window</h3>
+          <canvas class="timeline" id="fileTimeline"></canvas>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Duration</div><div class="v" id="fsDur">—</div></div>
+          <div class="stat"><div class="k">Speech windows</div><div class="v" id="fsWin">—</div></div>
+          <div class="stat"><div class="k">AI windows</div><div class="v" id="fsAi">—</div></div>
+          <div class="stat"><div class="k">Analysis time</div><div class="v" id="fsTime">—</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>Runs entirely on this computer · <kbd>Space</kbd> start / stop · results are a prototype, not proof</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const HOP_MS = 500, MIN_SECONDS = 1.5, SMOOTH = 4, HISTORY_S = 30;
+let threshold = 0.45, windowSeconds = 4.0375;
+
+/* ---------------- helpers ---------------- */
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function mix(a, b, t) {               // hex colours
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+function scoreColor(p) { return p >= threshold ? css("--ai") : css("--human"); }
+function toast(msg, ms = 4000) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), ms); }
+function fmtTime(s) { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+function fitCanvas(c) {
+  const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) { c.width = r.width * dpr; c.height = r.height * dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
+}
+
+/* ---------------- gauge ---------------- */
+function makeGauge(el) {
+  const R = 100, C = 2 * Math.PI * R, ARC = 0.75;           // 270 degree arc
+  el.innerHTML = `<svg viewBox="0 0 240 240"><circle class="track" cx="120" cy="120" r="${R}" fill="none" stroke-width="16" stroke-linecap="round" stroke-dasharray="${C * ARC} ${C}"/>
+    <circle class="val" cx="120" cy="120" r="${R}" fill="none" stroke-width="16" stroke-linecap="round" stroke-dasharray="${C * ARC} ${C}" stroke-dashoffset="${C * ARC}"/>
+    <line class="thr" x1="120" y1="8" x2="120" y2="32" stroke-width="3" stroke-linecap="round"/></svg>
+    <div class="center"><div class="pct">—</div><div class="pct-label">chance it's AI</div></div>`;
+  const val = el.querySelector(".val"), thr = el.querySelector(".thr"), pct = el.querySelector(".pct");
+  return {
+    set(p) {
+      if (p == null) { val.style.strokeDashoffset = C * ARC; pct.innerHTML = "—"; el.closest(".card").style.setProperty("--glow", "transparent"); return; }
+      val.style.strokeDashoffset = C * ARC * (1 - p);
+      const col = p >= threshold ? mix(css("--warn"), css("--ai"), Math.min(1, (p - threshold) / (1 - threshold) * 1.6))
+                                 : mix(css("--human"), css("--warn"), Math.min(1, p / threshold) ** 2);
+      val.style.stroke = col; el.closest(".card").style.setProperty("--glow", col);
+      pct.innerHTML = `${Math.round(p * 100)}<small>%</small>`;
+    },
+    threshold(t) { thr.setAttribute("transform", `rotate(${270 * t + 90} 120 120)`); },
+  };
+}
+const liveGauge = makeGauge($("liveGauge")), fileGauge = makeGauge($("fileGauge"));
+
+function showVerdict(prefix, p, noSpeech) {
+  const v = $(prefix + "Verdict"), H = $(prefix === "live" ? "barH" : "fbarH"), A = $(prefix === "live" ? "barA" : "fbarA");
+  const vh = $(prefix === "live" ? "valH" : "fvalH"), va = $(prefix === "live" ? "valA" : "fvalA");
+  (prefix === "live" ? liveGauge : fileGauge).set(noSpeech ? null : p);
+  if (noSpeech || p == null) { v.className = "verdict"; H.style.width = A.style.width = "0"; vh.textContent = va.textContent = "—"; return; }
+  const ai = p >= threshold;
+  v.textContent = ai ? "AI-GENERATED" : "HUMAN"; v.className = "verdict " + (ai ? "ai" : "human");
+  H.style.width = `${(1 - p) * 100}%`; A.style.width = `${p * 100}%`;
+  vh.textContent = `${((1 - p) * 100).toFixed(1)}%`; va.textContent = `${(p * 100).toFixed(1)}%`;
+}
+
+/* ---------------- charts ---------------- */
+function drawTimeline(canvas, points, span) {
+  const [g, w, h] = fitCanvas(canvas), L = 34, R = 10, T = 12, B = 22, iw = w - L - R, ih = h - T - B;
+  g.clearRect(0, 0, w, h);
+  g.font = "11px " + css("--mono"); g.fillStyle = css("--dim"); g.strokeStyle = "#1a2338"; g.lineWidth = 1;
+  for (const v of [0, .5, 1]) { const y = T + ih * (1 - v); g.beginPath(); g.moveTo(L, y); g.lineTo(L + iw, y); g.stroke(); g.fillText(v.toFixed(1), 6, y + 4); }
+  const ty = T + ih * (1 - threshold);
+  g.setLineDash([5, 5]); g.strokeStyle = css("--warn"); g.beginPath(); g.moveTo(L, ty); g.lineTo(L + iw, ty); g.stroke(); g.setLineDash([]);
+  if (!points.length) return;
+  const tEnd = points[points.length - 1][0], t0 = span ? Math.max(0, tEnd - span) : points[0][0], width = Math.max(tEnd - t0, 1e-6);
+  const X = t => L + (t - t0) / width * iw, Y = p => T + ih * (1 - p);
+  // filled area under the curve, split at gaps (no speech)
+  let seg = [];
+  const flush = () => {
+    if (seg.length > 1) {
+      const grad = g.createLinearGradient(0, T, 0, T + ih);
+      grad.addColorStop(0, "rgba(251,79,111,.28)"); grad.addColorStop(1 - threshold, "rgba(245,185,74,.12)"); grad.addColorStop(1, "rgba(45,212,191,.05)");
+      g.beginPath(); g.moveTo(X(seg[0][0]), T + ih); seg.forEach(([t, p]) => g.lineTo(X(t), Y(p))); g.lineTo(X(seg[seg.length - 1][0]), T + ih); g.closePath();
+      g.fillStyle = grad; g.fill();
+      g.lineWidth = 2.2; for (let i = 1; i < seg.length; i++) { g.strokeStyle = scoreColor(seg[i][1]); g.beginPath(); g.moveTo(X(seg[i - 1][0]), Y(seg[i - 1][1])); g.lineTo(X(seg[i][0]), Y(seg[i][1])); g.stroke(); }
+    }
+    seg = [];
+  };
+  for (const pt of points) { if (pt[0] < t0) continue; if (pt[1] == null) flush(); else seg.push(pt); }
+  flush();
+  for (const [t, p] of points) if (p != null && t >= t0) { g.fillStyle = scoreColor(p); g.beginPath(); g.arc(X(t), Y(p), 2.6, 0, 7); g.fill(); }
+  g.fillStyle = css("--dim"); g.fillText(`${Math.round(t0)}s`, L, h - 6); const lbl = `${Math.round(tEnd)}s`; g.fillText(lbl, L + iw - g.measureText(lbl).width, h - 6);
+}
+
+function drawWave(canvas, data, live) {
+  const [g, w, h] = fitCanvas(canvas); g.clearRect(0, 0, w, h);
+  g.strokeStyle = "#172036"; g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  if (!data || !data.length) return;
+  const cols = Math.floor(w / 3), per = Math.max(1, Math.floor(data.length / cols));
+  let peak = 0.02; for (let i = 0; i < data.length; i += 4) peak = Math.max(peak, Math.abs(data[i]));
+  const grad = g.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, "rgba(139,156,255,.25)"); grad.addColorStop(1, live ? css("--human") : css("--accent"));
+  g.fillStyle = grad;
+  for (let c = 0; c < cols; c++) {
+    let lo = 0, hi = 0; for (let i = c * per; i < (c + 1) * per && i < data.length; i++) { const v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const a = Math.max(1, (hi - lo) / (2 * peak) * h * 0.42);
+    g.fillRect(c * 3, h / 2 - a, 2, a * 2);
+  }
+}
+
+/* ---------------- server ---------------- */
+async function info() {
+  try {
+    const r = await (await fetch("/api/info")).json();
+    $("modelName").textContent = r.model.replace(" (step", " · step").replace(")", "");
+    $("srvDot").className = "dot on"; $("srvText").textContent = `${r.device}${r.vad ? " · VAD" : ""}`;
+    windowSeconds = r.window_seconds; setThreshold(r.threshold);
+  } catch (e) { $("srvDot").className = "dot err"; $("srvText").textContent = "server offline"; toast("Start the server: python server.py"); }
+}
+function setThreshold(t) {
+  threshold = Math.round(t * 100) / 100; $("thr").value = Math.round(threshold * 100); $("thrVal").textContent = threshold.toFixed(2);
+  liveGauge.threshold(threshold); fileGauge.threshold(threshold); refreshLive(); refreshFile();
+}
+$("thr").addEventListener("input", e => setThreshold(e.target.value / 100));
+
+/* ---------------- live microphone ---------------- */
+const S = { ctx: null, stream: null, node: null, sr: 48000, ring: null, ringPos: 0, filled: 0, session: [], sessionLen: 0,
+            points: [], recent: [], all: [], t0: 0, timer: null, busy: false, running: false, lastSpeech: 0, label: "none" };
+const MAX_SESSION_S = 20 * 60;
+
+const WORKLET = `class Tap extends AudioWorkletProcessor { constructor(){super(); this.buf = new Float32Array(2048); this.n = 0;}
+  process(inputs){ const ch = inputs[0] && inputs[0][0]; if (ch) { for (let i = 0; i < ch.length; i++) { this.buf[this.n++] = ch[i];
+    if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0)); this.n = 0; } } } return true; } }
+  registerProcessor("tap", Tap);`;
+
+async function listMics() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+    const sel = $("micSelect"), keep = sel.value;
+    sel.innerHTML = `<option value="">Default microphone</option>` + devs.filter(d => d.deviceId !== "default")
+      .map((d, i) => `<option value="${d.deviceId}">${d.label || "Microphone " + (i + 1)}</option>`).join("");
+    sel.value = keep;
+  } catch (e) {}
+}
+
+function pushAudio(chunk) {
+  const ring = S.ring, n = ring.length;
+  for (let i = 0; i < chunk.length; i++) { ring[S.ringPos] = chunk[i]; S.ringPos = (S.ringPos + 1) % n; }
+  S.filled = Math.min(n, S.filled + chunk.length);
+  if (S.label !== "none" && S.sessionLen < MAX_SESSION_S * S.sr) { S.session.push(chunk); S.sessionLen += chunk.length; }
+}
+function latest(seconds) {                 // last `seconds` of audio, oldest first
+  const n = Math.min(S.filled, Math.floor(seconds * S.sr)), out = new Float32Array(n), ring = S.ring, len = ring.length;
+  for (let i = 0; i < n; i++) out[i] = ring[(S.ringPos - n + i + len) % len];
+  return out;
+}
+
+async function start() {
+  try {
+    const deviceId = $("micSelect").value;
+    S.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 1,
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    S.ctx = new AudioContext(); S.sr = S.ctx.sampleRate;
+    await S.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+    const src = S.ctx.createMediaStreamSource(S.stream);
+    S.node = new AudioWorkletNode(S.ctx, "tap");
+    S.node.port.onmessage = e => pushAudio(e.data);
+    src.connect(S.node);                     // not connected to the speakers: no feedback
+    S.ring = new Float32Array(Math.ceil(windowSeconds * S.sr) + S.sr); S.ringPos = 0; S.filled = 0;
+    S.session = []; S.sessionLen = 0; S.t0 = performance.now(); S.running = true;
+    S.timer = setInterval(tick, HOP_MS);
+    listMics();
+    const track = S.stream.getAudioTracks()[0], set = track.getSettings ? track.getSettings() : {};
+    $("liveStatus").textContent = `${track.label || "microphone"} · ${S.sr / 1000} kHz` +
+      (set.noiseSuppression || set.echoCancellation || set.autoGainControl ? " · ⚠ browser processing still on" : " · raw input (no browser processing)");
+    $("startBtn").textContent = "Stop"; $("startBtn").classList.add("stop");
+    $("recState").classList.add("on"); $("recText").textContent = S.label === "none" ? "listening" : `listening · recording ${S.label.toUpperCase()}`;
+    $("liveVerdict").textContent = "LISTENING…"; $("liveVerdict").className = "verdict"; $("liveHint").textContent = "Waiting for speech";
+    requestAnimationFrame(frame);
+  } catch (e) { toast("Microphone error: " + e.message); stop(); }
+}
+
+async function stop() {
+  clearInterval(S.timer); S.running = false;
+  if (S.stream) S.stream.getTracks().forEach(t => t.stop());
+  if (S.ctx) await S.ctx.close().catch(() => {});
+  S.ctx = S.stream = S.node = null;
+  $("startBtn").textContent = "Start listening"; $("startBtn").classList.remove("stop");
+  $("recState").classList.remove("on"); $("recText").textContent = "idle"; $("levelBar").style.width = "0";
+  if (S.all.length) $("liveHint").textContent = `Session average P(AI) ${mean(S.all).toFixed(2)} over ${S.all.length} speech windows`;
+  if (S.label !== "none" && S.sessionLen > S.sr) await saveSession();
+}
+
+async function saveSession() {
+  const audio = new Float32Array(S.sessionLen); let o = 0; for (const c of S.session) { audio.set(c, o); o += c.length; }
+  S.session = []; S.sessionLen = 0;
+  try {
+    const name = encodeURIComponent($("saveName").value || "mic");
+    const r = await (await fetch(`/api/save?sr=${S.sr}&label=${S.label}&name=${name}`, { method: "POST", body: audio.buffer })).json();
+    toast(r.message || r.error, 6000);
+  } catch (e) { toast("Saving failed: " + e.message); }
+}
+
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+
+async function tick() {
+  if (!S.running || S.busy || S.filled < MIN_SECONDS * S.sr) return;
+  S.busy = true;
+  const t = (performance.now() - S.t0) / 1000;
+  try {
+    const audio = latest(windowSeconds);
+    const r = await (await fetch(`/api/score?sr=${S.sr}`, { method: "POST", body: audio.buffer })).json();
+    if (r.error) throw new Error(r.error);
+    $("latency").textContent = `${r.ms} ms`;
+    if (r.no_speech) {
+      S.points.push([t, null]);
+      if (t - S.lastSpeech > 3) S.recent = [];
+    } else {
+      S.points.push([t, r.p_ai]); S.recent.push(r.p_ai); S.all.push(r.p_ai); S.lastSpeech = t;
+      if (S.recent.length > SMOOTH) S.recent.shift();
+    }
+    S.points = S.points.filter(p => p[0] > t - HISTORY_S - 2);
+    refreshLive(r.no_speech);
+  } catch (e) { $("liveStatus").textContent = "Server error: " + e.message; $("srvDot").className = "dot err"; }
+  S.busy = false;
+}
+
+function refreshLive(silentNow) {
+  drawTimeline($("timeline"), S.points, HISTORY_S);
+  $("stWindows").textContent = S.all.length;
+  $("stSession").textContent = S.all.length ? mean(S.all).toFixed(2) : "—";
+  $("stAiShare").textContent = S.all.length ? `${Math.round(S.all.filter(p => p >= threshold).length / S.all.length * 100)}%` : "—";
+  if (!S.recent.length) {
+    if (S.running) { showVerdict("live", null, true); $("liveVerdict").textContent = "LISTENING…"; $("liveHint").textContent = "No speech detected"; }
+    return;
+  }
+  const p = mean(S.recent);
+  showVerdict("live", p, false);
+  $("liveHint").textContent = silentNow ? "Silence now · holding the last verdict" : `Average of the last ${S.recent.length} speech windows`;
+}
+
+function frame() {
+  if (!S.running) return;
+  const d = latest(2);
+  drawWave($("wave"), d, true);
+  let s = 0; const tail = Math.min(d.length, Math.floor(S.sr * 0.1)); for (let i = d.length - tail; i < d.length; i++) s += d[i] * d[i];
+  const db = 10 * Math.log10(s / Math.max(tail, 1) + 1e-12); $("levelBar").style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
+  $("stTime").textContent = fmtTime((performance.now() - S.t0) / 1000);
+  requestAnimationFrame(frame);
+}
+
+$("startBtn").addEventListener("click", () => S.running ? stop() : start());
+$("resetBtn").addEventListener("click", () => { S.points = []; S.recent = []; S.all = []; showVerdict("live", null, true);
+  $("liveVerdict").textContent = S.running ? "LISTENING…" : "READY"; $("liveHint").textContent = ""; refreshLive(); });
+document.querySelectorAll("#labelSeg button").forEach(b => b.addEventListener("click", () => {
+  if (S.running) { toast("Choose the label before starting"); return; }
+  document.querySelectorAll("#labelSeg button").forEach(x => x.classList.toggle("on", x === b)); S.label = b.dataset.v;
+}));
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && !["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)) { e.preventDefault(); $("startBtn").click(); }
+});
+navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener("devicechange", listMics);
+
+/* ---------------- file analysis ---------------- */
+let fileResult = null;
+async function analyse(file) {
+  $("dropTitle").innerHTML = `<span class="spinner"></span>Analysing ${file.name}…`; $("dropSub").textContent = `${(file.size / 2 ** 20).toFixed(1)} MB`;
+  try {
+    const r = await (await fetch(`/api/file?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file })).json();
+    if (r.error) throw new Error(r.error);
+    fileResult = r; refreshFile();
+    $("fsDur").textContent = fmtTime(r.duration); $("fsTime").textContent = `${r.seconds}s`;
+    $("dropTitle").textContent = file.name; $("dropSub").textContent = "Drop another file to analyse it";
+  } catch (e) { toast("Analysis failed: " + e.message); $("dropTitle").textContent = "Drop an audio or video file"; }
+}
+function refreshFile() {
+  const r = fileResult;
+  if (!r) { drawTimeline($("fileTimeline"), [], 0); return; }
+  showVerdict("file", r.p_ai, r.no_speech);
+  if (r.no_speech) { $("fileVerdict").textContent = "NO SPEECH"; $("fileHint").textContent = "No speech found in this file"; }
+  else $("fileHint").textContent = `Mean of ${r.windows.length} speech windows`;
+  $("fsWin").textContent = r.windows.length;
+  $("fsAi").textContent = r.windows.length ? `${Math.round(r.windows.filter(w => w[1] >= threshold).length / r.windows.length * 100)}%` : "—";
+  drawTimeline($("fileTimeline"), r.windows, 0);
+}
+const drop = $("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) analyse(f); });
+$("fileInput").addEventListener("change", e => { const f = e.target.files[0]; if (f) analyse(f); e.target.value = ""; });
+
+/* ---------------- tabs / init ---------------- */
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + t.dataset.view));
+  refreshLive(); refreshFile();
+}));
+window.addEventListener("resize", () => { refreshLive(); refreshFile(); if (!S.running) drawWave($("wave"), null); });
+liveGauge.set(null); fileGauge.set(null);
+info(); listMics(); refreshLive(); refreshFile(); drawWave($("wave"), null);
+</script>
+</body>
+</html>

@@ -2,6 +2,11 @@
 
 Tells whether a voice recording is a real human or AI-generated (TTS / voice conversion).
 
+![The live demo UI: P(AI) gauge, live waveform and 30-second P(AI) timeline](assets/screenshot_2026-10-17_19-17-11.png)
+
+*The demo UI (`python server.py`, then http://127.0.0.1:8765) listening live through a
+Bluetooth headset mic: the gauge shows the current verdict, the timeline every 0.5 s check.*
+
 See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and dataset (online and local) used, with versions, licenses and citations.
 
 - **Model:** AASIST (Jung et al., ICASSP 2022), ~297K parameters, about 15 ms per 4 s window on an RTX 4050.
@@ -11,9 +16,11 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   Training uses class-weighted cross-entropy. The decision threshold on P(AI) is calibrated at the
   equal-error-rate point of your held-out recordings (Local validation). Checkpoints up to v2 used
   the pooled validation set instead, which put it too high (0.653); override it with `--threshold`.
-  The default `models/checkpoints/best.pt` is v3 (step 18000) with the threshold set by hand to 0.35:
-  its Local EER point (0.197) called half of all human voices AI once they went through a mic.
-  0.35 balances clean, noisy, mic and SONAR (`threshold_trained` in the file keeps the original).
+  The default `models/checkpoints/best.pt` is **v5** (v3 -> v4 -> v5 fine-tunes, step 5000) with the
+  threshold set to 0.45 by `compare.py`: the value with the best mean balanced accuracy over clean,
+  noisy, mic, phone-replay, SONAR and DeepVoice tests (`threshold_trained` keeps the original 0.287,
+  which flags too many replayed humans). Older models stay in `models/checkpoints/v2..v4/`; compare
+  any of them with `python compare.py models/checkpoints/v4/best.pt models/checkpoints/v5/best.pt`.
 - **Standard input format:** 16 kHz, mono, float32, leading/trailing silence trimmed, cut into
   64,600-sample (~4.04 s) windows, each RMS-normalised to -26 dBFS. Shorter clips are tiled to
   length. Long files are scanned with 50% overlap, near-silent windows are skipped, and the
@@ -36,51 +43,65 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   from 3% to 34%. `train.py --channel-aug 0` turns it off; `evaluate.py --channel` runs any test
   through all three effects.
 - **Data:** streamed from the Hugging Face Hub (`SpeechAntiSpoofingBenchmarks/*`) and never saved
-  to disk. Every training source but EmoSpoofTTS has both human and AI speech, so the model can't
-  learn "which dataset is this".
-  - Train: ASVspoof5, ASVspoof2021 DF + LA, In-the-Wild (80% of speakers), CD-ADD, DFADD, LibriSeVoc,
-    XMAD, CVoiceFake_small, EmoSpoofTTS, ODSS, DeepVoice (RVC voice conversion; 5 of its 8 people)
+  to disk, capped at a **fixed pool of 50,000 clips** (24,100 human / 25,900 AI) listed in
+  `data/online_subset.csv`. It is half of every batch; your recordings are the other half.
+  - Train: ASVspoof5, In-the-Wild (80% of speakers), XMAD, CD-ADD, DFADD, EmoSpoofTTS, DeepVoice
+    (5 of its 8 people). Quotas in `TRAIN_SOURCES` (config.py).
   - Validation: ASVspoof5 (last 10 shards), In-the-Wild (held-out 20% of speakers), your held-out
     recordings clean (Local) and through the simulated room/mic/codec (Local+mic)
   - Never trained on (generalisation tests): SONAR, and DeepVoice's Obama / Taylor / Margot
 
 - **Your own recordings** (`audio/human/<folder>`, `audio/ai/<folder>`) are indexed by
-  `build_local_csv.py` into `data/local_data.csv` and make up ~22% of every batch (`LOCAL_WEIGHT` = 0.30, relative to the other sources).
+  `build_local_csv.py` into `data/local_data.csv` and make up half of every batch (`LOCAL_WEIGHT` = `ONLINE_WEIGHT` = 1.0).
   Human and AI are sampled 50/50, and folders are weighted by sqrt(size) so small ones still count.
   Whole videos are held out for validation; single-recording folders hold out their last 20%.
 
-## Desktop app (live microphone)
+## Demo UI (browser, live microphone)
 
 ```bash
-python app.py                          # Live microphone tab + File analysis tab
-python app.py --simulate clip.wav      # feed a file into the live tab instead of the mic
+python server.py               # then open http://127.0.0.1:8765
 ```
 
-Live mode keeps the last ~4 s of microphone audio and scores it every 0.5 s. The speech detector
-runs first, so silence shows "LISTENING… (no speech)" instead of a guess. The verdict is the mean
-P(AI) of the last 4 speech windows, the graph shows P(AI) over the last 30 s, and the slider at
-the bottom moves the decision threshold. Speak into the mic, or play an AI voice from a phone held
-near it. The model is trained for replayed audio (simulated loudspeaker, room and mic), but it is a
-prototype: through a real mic expect roughly 3 in 4 verdicts right, not the ~97% it gets on clean files.
+A local page (`web/index.html`, one file, works offline) talks to `server.py`, which runs the
+model; it only listens on 127.0.0.1, so nothing leaves the machine.
 
-To make it better at exactly that, record real replays of your clips (human and AI alike) and
-retrain: `python data_collection/record_replay.py --per-folder 30` plays clips through the
-speakers while recording the mic (~70 min, can be stopped and resumed) into `audio/<class>/replay/`.
+- **Live microphone:** keeps the last ~4 s of mic audio and scores it every 0.5 s (about 70-100 ms
+  per check on the GPU). The speech detector runs first, so silence shows LISTENING instead of a
+  guess. The verdict is the mean P(AI) of the last 4 speech windows; the graph shows the last 30 s
+  and the slider moves the threshold. The browser's own noise suppression, echo cancellation and
+  auto-gain are switched off, because they rewrite the voice the way a denoiser does.
+- **Record training data:** pick Human or AI before Start; on Stop the session is cut into 4 s
+  clips in `audio/<class>/mic_<name>/` and kept whole in `data_collection/mic_sessions/`.
+- **File analysis:** drop any audio/video file; shows the verdict and P(AI) per 4 s window.
+- <kbd>Space</kbd> starts / stops.
+
+It is a prototype: through a real mic it is far less reliable than on clean files until it has
+been trained on recordings from that mic. `app.py` is the older desktop (Qt) version of the same.
+
+Real replays help too: `python data_collection/record_replay.py --per-folder 30` plays clips
+through the speakers while recording the mic (~70 min, can be stopped and resumed) into
+`audio/<class>/replay/`.
 
 ## Layout
 
 ```
-app.py                               desktop app: live microphone + file analysis
+server.py + web/index.html           demo UI in the browser (live mic, file analysis, recording)
+assets/                              screenshots for this README
+app.py                               older desktop (Qt) version of the demo
 detect.py  train.py  evaluate.py      the scripts you run
+compare.py                           all checkpoints x all tests, suggests a threshold
 build_local_csv.py                   indexes audio/ for training
 data_collection/   youtubethings.sh + ai_link.txt / human_link.txt -> downloads, clips, deletes;
                    prepare_audio.py cuts any file/folder into clips (max 1000 per file);
-                   record_replay.py records real speaker -> room -> mic versions of clips
+                   record_replay.py records real speaker -> room -> mic versions of clips;
+                   mic_sessions/ whole recordings from the demo UI
 detector/          library code (config.py has every setting; aasist.py is the original model)
 models/pretrained/   official AASIST weights
 models/vad/          Silero VAD speech detector
-models/checkpoints/  best.pt, last.pt, train_log.csv
-data/              local_data.csv (index of audio/), local_sources.csv (per-folder rules)
+models/checkpoints/  best.pt = the model the app uses (v5, threshold 0.45);
+                     v1/ ... v5/ one folder per training run; compare/ saved test scores
+data/              local_data.csv (index of audio/), local_sources.csv (per-folder rules),
+                   online_subset.csv (the fixed 50k online clips), speech_cache.csv
 audio/human/, audio/ai/   your recordings as 4 s clips (trained on)
 benchmark/ai/<voice>/, benchmark/human/<voice>/   hard cases, NEVER trained on
 benchmark/noise/<kind>/   silence / background noise, should come out as NO SPEECH
@@ -98,8 +119,8 @@ data_collection/youtubethings.sh --dry-run     # list channel/title/length of ev
 data_collection/youtubethings.sh               # download + clip + delete (skips videos in done.txt)
 python data_collection/prepare_audio.py ~/Downloads/manhwa/* --to ai/Manhwa_explained   # local files
 python build_local_csv.py      # re-run whenever you add/remove files in audio/
-python train.py                # fine-tune (Ctrl+C saves models/checkpoints/last.pt)
-python train.py --resume       # continue later; stops by itself after 4 evals without improvement
+python train.py --run v6 --init models/checkpoints/v5/best.pt   # fine-tune into models/checkpoints/v6/ (Ctrl+C saves last.pt)
+python train.py --run v6 --resume   # continue later; stops by itself after 4 evals without improvement
 
 python evaluate.py --source Local --limit 600   # your held-out recordings, per folder
 python evaluate.py --folder benchmark           # your hard cases, per voice + worst misses
@@ -110,7 +131,7 @@ python detect.py recording.wav --threshold 0.5                 # override the st
 
 # experiments with a different data mix (own folder, never touches models/checkpoints/best.pt)
 python train.py --show-mix --weight Local=0.5 --folder-weight human/immy=2      # preview
-python train.py --run local50 --init models/checkpoints/best_copy_step11000.pt --steps 4000 --weight Local=0.5
+python train.py --run local50 --init models/checkpoints/v5/best.pt --steps 4000 --weight Local=0.5
 python evaluate.py --source Local --limit 600 --checkpoint models/checkpoints/local50/best.pt
 
 python evaluate.py --source SONAR             # unseen modern TTS
