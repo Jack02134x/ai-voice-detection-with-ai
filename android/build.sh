@@ -21,9 +21,13 @@ rm -rf "$OUT"
 mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/dex"
 
 "$BT/aapt2" compile --dir "$HERE/res" -o "$OUT/res.zip"
+# versionCode bumps every build (minutes since 2025-01-01) so an update always installs over the
+# old app; versionName shows the build date.
+VCODE=$(( ($(date +%s) - 1735689600) / 60 ))
+VNAME=$(date +%Y.%m.%d.%H%M)
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$JAR" \
   --manifest "$HERE/AndroidManifest.xml" -A "$HERE/assets" --java "$OUT/gen" \
-  --min-sdk-version 26 --target-sdk-version 34 --version-code 1 --version-name 1.0 \
+  --min-sdk-version 26 --target-sdk-version 34 --version-code "$VCODE" --version-name "$VNAME" \
   "$OUT/res.zip"
 
 javac --release 11 -nowarn -Xlint:-options -classpath "$JAR:$ORT" -d "$OUT/classes" \

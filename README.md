@@ -101,7 +101,7 @@ Build it (no Gradle, same toolchain as `~/Projects/android_apps`):
 python export_onnx.py        # checkpoint -> android/assets/aasist.onnx + model.json (verifies vs PyTorch)
 python audio_check.py        # proves the app's Java preprocessing matches detector/audio_utils.py
 cd android && ./fetch_ort.sh # once: downloads ONNX Runtime (.so for arm64 phones + x86_64 Waydroid)
-./build.sh                   # -> android/VoiceCheck.apk (~28 MB)
+./build.sh                   # -> android/VoiceCheck.apk (~30 MB; versionCode auto-bumps each build)
 ```
 
 **Updating the app after retraining:** re-run `export_onnx.py` (it reads `models/checkpoints/best.pt`)

@@ -83,8 +83,9 @@ spoof-detection weights, whereas AASIST ships weights trained for exactly this t
 ### Built with
 
 This project was designed and written with **Claude** (Anthropic), working through
-**Claude Code** with the **Claude Opus 5.5** model (`claude-opus-5-5`), October 2026. That covers
-the code in this folder, the data pipeline, the choice of datasets and models, and this document.
+**Claude Code** (models **Claude Opus 5.5** and **Claude Opus 4.8**), October 2026. That covers
+the detector and training pipeline, the choice of datasets and models, the browser demo UI
+(`server.py` + `web/index.html`), the on-device Android app (`android/`), and this document.
 
 ---
 
