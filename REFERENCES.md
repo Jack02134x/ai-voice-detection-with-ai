@@ -21,7 +21,9 @@ Versions are the ones installed in `~/ai-things` on 2026-10-11.
 | Language | Version | Used for |
 |---|---|---|
 | Python | 3.14.8 | everything except the YouTube downloader (`detector/`, `train.py`, `evaluate.py`, `detect.py`, `build_local_csv.py`, `data_collection/prepare_audio.py`) |
-| Bash | 5.3 | `data_collection/youtubethings.sh` (download → clip → delete pipeline) |
+| Bash | 5.3 | `data_collection/youtubethings.sh`, `android/build.sh`, `android/fetch_ort.sh` |
+| Java | 11 language level (built with OpenJDK 27) | the Android app `android/` |
+| HTML / CSS / JavaScript | (no framework) | the demo UI `web/index.html` |
 
 ### Spoken (in the data)
 
@@ -54,6 +56,9 @@ can't act as a shortcut. Keep both classes represented in every language you add
 | [python-soundfile](https://github.com/bastibe/python-soundfile) | 0.14.0 | BSD-3-Clause | reading FLAC/WAV clips |
 | [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) | 0.5.6 | MIT | microphone input (`app.py`), play-and-record (`record_replay.py`) |
 | [PySide6 (Qt for Python)](https://doc.qt.io/qtforpython-6/) | 6.11.2 | LGPL-3.0 | desktop app (`app.py`), adapted from the SIH project's `src/gui.py` |
+| [ONNX](https://onnx.ai) / [onnxruntime](https://onnxruntime.ai) (Python) | 1.23.2 / 1.31.0 | MIT / MIT | exporting AASIST to ONNX and verifying it (`export_onnx.py`, `audio_check.py`) |
+| [ONNX Runtime for Android](https://onnxruntime.ai) | 1.31.0 | MIT | running the model on the phone (`android/`); the `.aar` from Maven Central, fetched by `android/fetch_ort.sh` |
+| Android SDK (platform android-36, build-tools 37.0.0: aapt2, d8, zipalign, apksigner) | 36 / 37.0.0 | Apache-2.0 | building `android/VoiceCheck.apk` without Gradle |
 | [FFmpeg](https://ffmpeg.org) | n9.0.2 | LGPL-2.1+ / GPL | fallback decoder for unusual formats |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 2026.08.19 | Unlicense | downloading YouTube audio (`youtubethings.sh`) |
 | [Deno](https://deno.com) | 2.9.7 | MIT | JavaScript runtime yt-dlp uses for YouTube |
@@ -70,7 +75,7 @@ Hardware used: NVIDIA RTX 4050 Laptop GPU (6 GB), driver 615.78.08.
 |---|---|---|---|---|---|
 | **AASIST** (Jung et al., 2021) | the human-vs-AI classifier: raw waveform → sinc filters → residual encoder → spectral + temporal graph attention → 2-way softmax | 297,866 | `detector/aasist.py` (original code, unmodified), `models/pretrained/AASIST.pth` (official weights, trained on ASVspoof 2019 LA), `models/checkpoints/*.pt` (our fine-tuned weights) | [clovaai/aasist](https://github.com/clovaai/aasist) | MIT (`detector/LICENSE_AASIST`) |
 | **AASIST-L** | lighter variant, selectable with `--arch AASIST-L` | 85,306 | `models/pretrained/AASIST-L.pth` | [clovaai/aasist](https://github.com/clovaai/aasist) | MIT |
-| **Silero VAD** v5 | speech detector: marks which 32 ms frames contain speech, so silence and background noise get **NO SPEECH** instead of a human/AI verdict, and are kept out of training | ~2 MB | `models/vad/silero_vad.jit` | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT (`models/vad/LICENSE_SILERO`) |
+| **Silero VAD** v5 | speech detector: marks which 32 ms frames contain speech, so silence and background noise get **NO SPEECH** instead of a human/AI verdict, and are kept out of training | ~2 MB (jit) / ~1.3 MB (onnx) | `models/vad/silero_vad.jit` (laptop); `android/assets/silero_vad.onnx` = `silero_vad_16k_sequence` from the `silero-vad` 6.2.3 pip package, verified to match the jit exactly | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT (`models/vad/LICENSE_SILERO`) |
 
 Considered but not used: RawNet3. It is a speaker-verification model with no
 spoof-detection weights, whereas AASIST ships weights trained for exactly this task.

@@ -46,3 +46,11 @@ logs/
 # local AI coordination board
 ai_communication.md
 
+
+# --- Android app (Voice Check) ---
+android/build/
+android/release.keystore
+android/VoiceCheck.apk
+*.apk.idsig
+android/libs/
+android/jni/

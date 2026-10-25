@@ -82,12 +82,44 @@ Real replays help too: `python data_collection/record_replay.py --per-folder 30`
 through the speakers while recording the mic (~70 min, can be stopped and resumed) into
 `audio/<class>/replay/`.
 
+## Android app (Voice Check)
+
+`android/VoiceCheck.apk` runs the whole model **on the phone** (ONNX Runtime + AASIST ~1.6 MB +
+Silero VAD ~1.3 MB). No server, no internet, nothing leaves the phone. Same look as the web UI:
+gauge, HUMAN/AI bars, live waveform, P(AI)-over-30s timeline, threshold slider, stat tiles.
+
+- **Check a recording:** share any voice note / recording to Voice Check from another app, or pick
+  one in the app. Per-window P(AI) timeline + verdict.
+- **Listen live:** uses the phone mic. Silence and non-speech are shown as NO SPEECH (Silero VAD,
+  the same model and decisions as the laptop). Keeps listening when minimised (a foreground
+  service), with a **floating pill** that shows the current P(AI)% over other apps — tap it to
+  reopen, drag to move. The pill needs the "Display over other apps" permission (asked on first use).
+
+Build it (no Gradle, same toolchain as `~/Projects/android_apps`):
+
+```bash
+python export_onnx.py        # checkpoint -> android/assets/aasist.onnx + model.json (verifies vs PyTorch)
+python audio_check.py        # proves the app's Java preprocessing matches detector/audio_utils.py
+cd android && ./fetch_ort.sh # once: downloads ONNX Runtime (.so for arm64 phones + x86_64 Waydroid)
+./build.sh                   # -> android/VoiceCheck.apk (~28 MB)
+```
+
+**Updating the app after retraining:** re-run `export_onnx.py` (it reads `models/checkpoints/best.pt`)
+then `android/build.sh`; install the new APK over the old one (same signing key). `Preprocess.java`
+mirrors `detector/audio_utils.py` and `SileroVad.java` runs the same Silero VAD as `detector/vad.py`;
+`audio_check.py` guards that the preprocessing stays identical to Python. `android/assets/silero_vad.onnx`
+is the `silero_vad_16k_sequence` model from the `silero-vad` 6.2.3 package (MIT). Phone-mic and
+compressed voice-note audio are rough until the model is trained on them.
+
 ## Layout
 
 ```
 server.py + web/index.html           demo UI in the browser (live mic, file analysis, recording)
 assets/                              screenshots for this README
 app.py                               older desktop (Qt) version of the demo
+android/                             Voice Check phone app (Java + ONNX Runtime, build.sh) -> VoiceCheck.apk
+export_onnx.py                       checkpoint -> android/assets/aasist.onnx (verified vs PyTorch)
+audio_check.py                       proves android's Java preprocessing matches audio_utils.py
 detect.py  train.py  evaluate.py      the scripts you run
 compare.py                           all checkpoints x all tests, suggests a threshold
 build_local_csv.py                   indexes audio/ for training
