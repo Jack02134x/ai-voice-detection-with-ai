@@ -12,6 +12,24 @@ ROOT = Path(__file__).resolve().parent.parent   # project folder
 # nothing is written to ~/.cache. Must be set before `datasets` is imported.
 os.environ.setdefault("HF_HOME", str(ROOT / ".hf_cache"))
 
+# Try IPv4 before IPv6. On networks where DNS hands out IPv6 addresses first but IPv6 doesn't
+# actually route, browsers and curl fall back to IPv4 quickly ("Happy Eyeballs"), but Python's
+# HTTP client waits for every IPv6 attempt to time out, so Hugging Face streaming hung
+# (2026-10-26: listing a dataset never finished; with IPv4 first it took 1.6 s). IPv6 is still
+# tried afterwards. Set PREFER_IPV4=0 to turn this off. Every script and DataLoader worker
+# imports this module first, so this covers training, evaluation and data prep.
+if os.environ.get("PREFER_IPV4", "1") != "0":
+    import socket
+
+    if not getattr(socket.getaddrinfo, "_ipv4_first", False):
+        _getaddrinfo = socket.getaddrinfo
+
+        def _ipv4_first(*args, **kwargs):
+            return sorted(_getaddrinfo(*args, **kwargs), key=lambda r: r[0] != socket.AF_INET)
+
+        _ipv4_first._ipv4_first = True
+        socket.getaddrinfo = _ipv4_first
+
 PRETRAINED_DIR = ROOT / "models" / "pretrained"
 VAD_PATH = ROOT / "models" / "vad" / "silero_vad.jit"   # speech / no-speech detector
 CHECKPOINT_DIR = ROOT / "models" / "checkpoints"

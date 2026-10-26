@@ -53,3 +53,7 @@ android/release.keystore
 *.apk.idsig
 android/libs/
 android/jni/
+
+# --- open-source TTS generator (tts/): venv and downloaded voice models are large ---
+tts/.venv/
+tts/models/

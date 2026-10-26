@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader
 
 from detector.config import (ARCHS, BATCH_SIZE, BG_PROB, BG_SNR_DB, CHANNEL_PROB, CHECKPOINT_DIR,
                              GRAD_ACCUM, SAMPLE_RATE, TRAIN_SOURCES)
-from detector.data import (LOCAL, TrainStream, default_mix, folder_weights, load_validation_set,
+from detector.data import (LOCAL, MIC, TrainStream, default_mix, folder_weights, load_validation_set,
                            local_rows, validation_sources)
 from detector.metrics import compute_eer
 from detector.model import build_model, load_pretrained
@@ -145,10 +145,15 @@ def main():
     p.add_argument("--channel-aug", type=float, default=1.0,
                    help="multiplier for the room / mic / codec augmentation rates in config.py (0 = off)")
     p.add_argument("--show-mix", action="store_true", help="print the data mix and exit")
+    p.add_argument("--local-only", action="store_true",
+                   help="train and validate on your recordings only (no Hugging Face / network): "
+                        "online sources off, validation = Local + Local+mic")
     args = p.parse_args()
 
     mix = default_mix()
     mix.update(parse_pairs(args.weight, valid=set(mix), what="source"))
+    if args.local_only:
+        mix = {name: (w if name == LOCAL else 0.0) for name, w in mix.items()}
     rows = local_rows("train")
     folder_mult = parse_pairs(args.folder_weight, valid={r[2] for r in rows}, what="folder")
     print_mix(mix, folder_mult, rows)
@@ -184,6 +189,8 @@ def main():
         0.05 + 0.95 * 0.5 * (1 + math.cos(math.pi * min(s, args.steps) / args.steps))))
 
     val_sources = validation_sources()
+    if args.local_only:
+        val_sources = [s for s in val_sources if s in (LOCAL, MIC)]
     if not rows:
         mix.pop(LOCAL, None)
     print(f"Your recordings: {f'used ({len(rows)} train files)' if mix.get(LOCAL, 0) > 0 else 'not used'}")

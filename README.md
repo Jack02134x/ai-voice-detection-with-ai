@@ -16,11 +16,15 @@ See **[REFERENCES.md](REFERENCES.md)** for every language, library, AI model and
   Training uses class-weighted cross-entropy. The decision threshold on P(AI) is calibrated at the
   equal-error-rate point of your held-out recordings (Local validation). Checkpoints up to v2 used
   the pooled validation set instead, which put it too high (0.653); override it with `--threshold`.
-  The default `models/checkpoints/best.pt` is **v5** (v3 -> v4 -> v5 fine-tunes, step 5000) with the
-  threshold set to 0.45 by `compare.py`: the value with the best mean balanced accuracy over clean,
-  noisy, mic, phone-replay, SONAR and DeepVoice tests (`threshold_trained` keeps the original 0.287,
-  which flags too many replayed humans). Older models stay in `models/checkpoints/v2..v4/`; compare
-  any of them with `python compare.py models/checkpoints/v4/best.pt models/checkpoints/v5/best.pt`.
+  The default `models/checkpoints/best.pt` is **v6** (step 3000) with the threshold set to 0.55 by
+  `compare.py`: the value with the best mean balanced accuracy (84.5%) over clean, noisy, mic,
+  phone-replay, SONAR and DeepVoice tests (`threshold_trained` keeps the original 0.429). v6 was
+  trained in two phases on 2026-10-26: `v6_local` (your recordings only, `--local-only`, adding the
+  open-source TTS voices, Claude, NotebookLM and Gemini), then online data again from there to undo
+  what local-only training forgot (ASVspoof5 had dropped to 33% EER). On held-out clips it catches
+  NotebookLM 86% and Claude 87% of the time, versus 11% and 17% for v5. Older models stay in
+  `models/checkpoints/v1..v6_local/`; compare any of them with
+  `python compare.py models/checkpoints/v5/best.pt models/checkpoints/v6/best.pt`.
 - **Standard input format:** 16 kHz, mono, float32, leading/trailing silence trimmed, cut into
   64,600-sample (~4.04 s) windows, each RMS-normalised to -26 dBFS. Shorter clips are tiled to
   length. Long files are scanned with 50% overlap, near-silent windows are skipped, and the
@@ -94,6 +98,12 @@ gauge, HUMAN/AI bars, live waveform, P(AI)-over-30s timeline, threshold slider, 
   the same model and decisions as the laptop). Keeps listening when minimised (a foreground
   service), with a **floating pill** that shows the current P(AI)% over other apps — tap it to
   reopen, drag to move. The pill needs the "Display over other apps" permission (asked on first use).
+- **Save live recordings** (toggle, remembered): live sessions are recorded as 16 kHz WAV. When you
+  press Stop (or switch it off mid-session) the app asks whether the voice was **Human**, **AI**,
+  *Not sure* or *Discard*, and files it in `Recordings/VoiceCheck/human/`, `.../ai/` or
+  `Recordings/VoiceCheck/` (`Music/VoiceCheck/` on Android 10-11), named by date and time, e.g.
+  `2026-10-26_13-05-12.wav`. Copy the human/ai folders
+  into `audio/human/<name>/` and `audio/ai/<name>/` to train on them.
 
 Build it (no Gradle, same toolchain as `~/Projects/android_apps`):
 
@@ -118,6 +128,7 @@ server.py + web/index.html           demo UI in the browser (live mic, file anal
 assets/                              screenshots for this README
 app.py                               older desktop (Qt) version of the demo
 android/                             Voice Check phone app (Java + ONNX Runtime, build.sh) -> VoiceCheck.apk
+tts/                                 open-source TTS (Kokoro + Piper) -> synthetic AI clips in audio/ai/tts_*/ (see tts/README.md)
 export_onnx.py                       checkpoint -> android/assets/aasist.onnx (verified vs PyTorch)
 audio_check.py                       proves android's Java preprocessing matches audio_utils.py
 detect.py  train.py  evaluate.py      the scripts you run
@@ -130,7 +141,7 @@ data_collection/   youtubethings.sh + ai_link.txt / human_link.txt -> downloads,
 detector/          library code (config.py has every setting; aasist.py is the original model)
 models/pretrained/   official AASIST weights
 models/vad/          Silero VAD speech detector
-models/checkpoints/  best.pt = the model the app uses (v5, threshold 0.45);
+models/checkpoints/  best.pt = the model the app uses (v6, threshold 0.55);
                      v1/ ... v5/ one folder per training run; compare/ saved test scores
 data/              local_data.csv (index of audio/), local_sources.csv (per-folder rules),
                    online_subset.csv (the fixed 50k online clips), speech_cache.csv

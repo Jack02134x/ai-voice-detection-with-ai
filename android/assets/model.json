@@ -1,7 +1,7 @@
 {
-  "threshold": 0.45,
+  "threshold": 0.55,
   "sample_rate": 16000,
   "window": 64600,
   "target_dbfs": -26.0,
-  "source": "best.pt (step 5000)"
+  "source": "best.pt (step 3000)"
 }

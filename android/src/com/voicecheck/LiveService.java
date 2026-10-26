@@ -57,6 +57,25 @@ public class LiveService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Float> recentSpeech = new ArrayList<>();
 
+    // saving live audio (toggle in the app; see Recordings)
+    private java.io.File recPcm;
+    private java.io.OutputStream recOut;
+    private int recSessionStart = 0;          // index into `session` where this recording began
+    public volatile boolean recording = false;
+    public volatile long recordingSince = 0;
+    public static volatile String lastSaved = "";   // error text for the app (outlives the service)
+
+    /** A finished recording waiting for the user to say whether it was human or AI. */
+    public static final class Pending {
+        public final java.io.File pcm;
+        public final double meanPAi;
+        Pending(java.io.File pcm, double meanPAi) {
+            this.pcm = pcm;
+            this.meanPAi = meanPAi;
+        }
+    }
+    public static volatile Pending pending;
+
     // floating pill
     private WindowManager wm;
     private View pill;
@@ -101,6 +120,7 @@ public class LiveService extends Service {
         running = true;
         loop = new Thread(this::run, "live-svc");
         loop.start();
+        if (Recordings.enabled(this)) startRecording();
     }
 
     @Override
@@ -158,6 +178,61 @@ public class LiveService extends Service {
         if (l != null) l.onUpdate();
         updatePill();
         updateNotification();
+    }
+
+    // ---------------- saving live audio ----------------
+
+    /** Start writing the mic to a temporary file (saved as WAV when recording stops). */
+    public synchronized void startRecording() {
+        if (recording || mic == null) return;
+        try {
+            recPcm = new java.io.File(getCacheDir(), "live_" + System.currentTimeMillis() + ".pcm");
+            recOut = new java.io.BufferedOutputStream(new java.io.FileOutputStream(recPcm), 64 * 1024);
+            synchronized (points) {
+                recSessionStart = session.size();
+            }
+            mic.setSink(recOut);
+            recordingSince = SystemClock.elapsedRealtime();
+            recording = true;
+            lastSaved = "";
+        } catch (Exception e) {
+            recording = false;
+            lastSaved = "Could not start recording: " + e.getMessage();
+        }
+        main.post(this::pushUpdate);
+    }
+
+    /** Stop writing; the finished file becomes `pending` until the app asks for its label.
+     *  async = true while the mic keeps running (switch turned off mid-session). */
+    public synchronized void stopRecording(boolean async) {
+        if (!recording) return;
+        recording = false;
+        if (mic != null) mic.setSink(null);
+        final java.io.File pcm = recPcm;
+        final java.io.OutputStream out = recOut;
+        recPcm = null;
+        recOut = null;
+        double mean;
+        synchronized (points) {
+            List<Float> seg = session.subList(Math.min(recSessionStart, session.size()), session.size());
+            double s = 0;
+            for (float x : seg) s += x;
+            mean = seg.isEmpty() ? Double.NaN : s / seg.size();
+        }
+        final double m = mean;
+        Runnable finish = () -> {
+            try {
+                if (async) Thread.sleep(200);    // let the mic thread finish its last write
+                out.close();
+                pending = new Pending(pcm, m);
+                lastSaved = "";
+            } catch (Exception e) {
+                lastSaved = "Recording failed: " + e.getMessage();
+            }
+            if (async) main.post(this::pushUpdate);   // on full stop the service is going away
+        };
+        if (async) new Thread(finish, "finish-recording").start();
+        else finish.run();
     }
 
     // ---------------- app visibility / pill ----------------
@@ -281,6 +356,7 @@ public class LiveService extends Service {
         } catch (InterruptedException ignored) {
         }
         if (mic != null) mic.stop();
+        stopRecording(false);                 // mic is stopped, so the file is complete
         if (analyzer != null) analyzer.close();
         removePill();
         instance = null;

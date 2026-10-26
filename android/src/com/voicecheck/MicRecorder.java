@@ -13,6 +13,12 @@ public final class MicRecorder {
     private Thread thread;
     private volatile boolean running = false;
     public volatile double levelDb = -100;
+    /** When set, every captured sample is also written here as 16-bit little-endian PCM. */
+    private volatile java.io.OutputStream sink;
+
+    public void setSink(java.io.OutputStream s) {
+        sink = s;
+    }
 
     public interface Listener {
         void onError(String msg);
@@ -50,6 +56,19 @@ public final class MicRecorder {
                     filled = Math.min(cap, filled + n);
                 }
                 levelDb = 10 * Math.log10(sum / n + 1e-12);
+                java.io.OutputStream s = sink;
+                if (s != null) {
+                    byte[] b = new byte[n * 2];
+                    for (int i = 0; i < n; i++) {
+                        b[2 * i] = (byte) buf[i];
+                        b[2 * i + 1] = (byte) (buf[i] >> 8);
+                    }
+                    try {
+                        s.write(b);
+                    } catch (java.io.IOException e) {
+                        sink = null;              // disk full / closed: stop writing, keep listening
+                    }
+                }
             }
         }, "mic");
         thread.start();

@@ -202,6 +202,17 @@ one folder per channel. Lists as of 2026-10-11:
 Removed on 2026-10-12: Scary Pumpkin's 5 animated horror stories (1,331 clips), which had been
 labelled AI, because the channel never states that the narration is AI. Used up to v4.
 
+### Synthetic, from open-source TTS (`tts/`)
+
+Generated locally on 2026-10-26 to widen the AI side beyond the few narrator voices the recap
+channels share (labels are guaranteed — every clip is TTS output). Text is our own
+(`tts/texts_en.txt`, `tts/texts_hi.txt`). See `tts/README.md`.
+
+| Folder | Engine | Voices | Clips | License |
+|---|---|---|---|---|
+| `ai/tts_kokoro` | [Kokoro](https://github.com/hexgrad/kokoro) v1.0 via [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) | 32 (US/UK English, Hindi) | 1,540 | Apache-2.0 |
+| `ai/tts_piper` | [Piper](https://github.com/rhasspy/piper) (piper-tts 1.8) | 33 (US/UK English incl. VCTK + LibriTTS-R speakers, Hindi) | 384 (Hindi 210, English 174) | MIT; per-voice licenses in each model's `.onnx.json` |
+
 ### Benchmark
 
 `benchmark/ai/<voice>/`, `benchmark/human/<voice>/` and `benchmark/noise/<kind>/` hold hard cases

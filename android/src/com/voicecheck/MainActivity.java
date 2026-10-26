@@ -2,6 +2,7 @@ package com.voicecheck;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -21,6 +22,7 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Switch;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -42,6 +44,8 @@ public class MainActivity extends Activity {
     private View barH, barA;
     private View waveCard;
     private ProgressBar level;
+    private Switch recSwitch;
+    private TextView recLabel;
     private SeekBar thrSeek;
     private Button checkBtn, liveBtn;
     private final TextView[] tileLabel = new TextView[4], tileValue = new TextView[4];
@@ -66,6 +70,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         setContentView(build());
         new Thread(this::loadModel).start();
+        rescueOrphanRecordings();
     }
 
     private void loadModel() {
@@ -152,6 +157,27 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(7));
         lp.setMargins(0, px(8), 0, 0);
         root.addView(level, lp);
+
+        // save live recordings toggle + REC indicator
+        LinearLayout recRow = new LinearLayout(this);
+        recRow.setOrientation(LinearLayout.HORIZONTAL);
+        recRow.setGravity(Gravity.CENTER_VERTICAL);
+        recRow.setPadding(0, px(10), 0, 0);
+        recSwitch = new Switch(this);
+        recSwitch.setText("Save live recordings");
+        recSwitch.setTextColor(TEXT);
+        recSwitch.setTextSize(14);
+        recSwitch.setChecked(Recordings.enabled(this));
+        recSwitch.setThumbTintList(android.content.res.ColorStateList.valueOf(AI));
+        recSwitch.setOnCheckedChangeListener((b, on) -> setRecording(on));
+        recRow.addView(recSwitch, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        recLabel = text("", 13, AI, true);
+        recRow.addView(recLabel);
+        root.addView(recRow);
+        TextView recHint = text("When you stop, you'll be asked if the voice was human or AI; the WAV goes to "
+                + Recordings.visibleFolder() + "/human, /ai, or the folder itself if unsure.", 11, MUTED, false);
+        recHint.setPadding(0, px(2), 0, 0);
+        root.addView(recHint);
 
         // waveform (live input)
         waveCard = card();
@@ -537,6 +563,8 @@ public class MainActivity extends Activity {
                     wave.setData(s.mic().recent(Preprocess.SR * 2), true);
                     level.setProgress((int) Math.max(0, Math.min(100, (s.mic().levelDb + 60) / 60 * 100)));
                     tileValue[3].setText(fmtTime((SystemClock.elapsedRealtime() - s.startTime) / 1000f));
+                    recLabel.setText(s.recording
+                            ? "● REC " + fmtTime((SystemClock.elapsedRealtime() - s.recordingSince) / 1000f) : "");
                 }
                 ui.postDelayed(this, 80);
             }
@@ -589,6 +617,90 @@ public class MainActivity extends Activity {
         wave.setData(new float[0], false);
         waveCard.setVisibility(View.GONE);
         status.setText(sess.isEmpty() ? "Stopped." : String.format(Locale.US, "Stopped. Session P(AI) %.2f over %d windows.", mean(sess), sess.size()));
+        recLabel.setText("");
+        ui.postDelayed(() -> askLabel(0), 600);
+    }
+
+    /** The "Save live recordings" switch: remembered, and applied right away if listening. */
+    private void setRecording(boolean on) {
+        if (on && android.os.Build.VERSION.SDK_INT < 29
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 3);
+        }
+        Recordings.setEnabled(this, on);
+        LiveService s = LiveService.instance;
+        if (s != null) {
+            if (on) s.startRecording();
+            else {
+                s.stopRecording(true);
+                recLabel.setText("");
+                ui.postDelayed(() -> askLabel(0), 600);
+            }
+        } else {
+            toast(on ? "Live sessions will be saved to " + Recordings.visibleFolder() : "Live sessions won't be saved");
+        }
+    }
+
+    /** After a recorded session: ask whether the voice was human or AI, then file it. */
+    private void askLabel(int attempt) {
+        LiveService.Pending pr = LiveService.pending;
+        if (pr == null) {
+            if (attempt < 8) ui.postDelayed(() -> askLabel(attempt + 1), 300);   // service still finishing
+            else if (!LiveService.lastSaved.isEmpty()) toast(LiveService.lastSaved);
+            return;
+        }
+        LiveService.pending = null;
+        long secs = pr.pcm.length() / (2L * Preprocess.SR);
+        String guess = Double.isNaN(pr.meanPAi) ? "the detector heard no speech"
+                : String.format(Locale.US, "the detector said %d%% AI", Math.round(pr.meanPAi * 100));
+        String[] choices = {"Human", "AI", "Not sure (save unlabelled)", "Discard"};
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle(String.format(Locale.US, "Label this recording (%d s, %s)", secs, guess))
+                .setItems(choices, (d, which) -> {
+                    if (which == 3) {
+                        pr.pcm.delete();
+                        toast("Recording discarded");
+                    } else {
+                        saveLabelled(pr, which == 0 ? "human" : which == 1 ? "ai" : null);
+                    }
+                })
+                .setOnCancelListener(d -> saveLabelled(pr, null))   // back / tap outside: keep it, unlabelled
+                .show();
+    }
+
+    private void saveLabelled(LiveService.Pending pr, String label) {
+        new Thread(() -> {
+            String msg;
+            try {
+                String path = Recordings.save(this, pr.pcm, pr.meanPAi, label);
+                msg = path == null ? "Recording under 1 s, not saved" : "Saved to " + path;
+            } catch (Exception e) {
+                msg = "Saving failed: " + e.getMessage();
+            }
+            final String m = msg;
+            ui.post(() -> {
+                status.setText(m);
+                toast(m);
+            });
+        }).start();
+    }
+
+    /** Recordings left in the cache by a killed app (never labelled): keep them, unlabelled. */
+    private void rescueOrphanRecordings() {
+        if (LiveService.instance != null || LiveService.pending != null) return;   // one is in use
+        java.io.File[] left = getCacheDir().listFiles((d, n) -> n.startsWith("live_") && n.endsWith(".pcm"));
+        if (left == null || left.length == 0) return;
+        new Thread(() -> {
+            int saved = 0;
+            for (java.io.File f : left) {
+                try {
+                    if (Recordings.save(this, f, Double.NaN, null) != null) saved++;
+                } catch (Exception ignored) {
+                }
+            }
+            final int n = saved;
+            if (n > 0) ui.post(() -> toast(n + " unfinished recording(s) saved to " + Recordings.visibleFolder()));
+        }).start();
     }
 
     @Override
